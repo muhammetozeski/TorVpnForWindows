@@ -48,8 +48,10 @@ internal static class Strings
     public static string StatusUnknown = "Bilinmiyor";
     public static string StatusNotConfirmed = "check.torproject.org bu adresi Tor çıkışı olarak tanımıyor";
     public static string StatusConfirmed = "Tor'a bağlanıldığı check.torproject.org tarafından doğrulandı";
-    public static string StatusDownload = "Alınan";
-    public static string StatusUpload = "Gönderilen";
+    public static string StatusDownload = "İndirme";
+    public static string StatusUpload = "Yükleme";
+    public static string StatusTotalFormat = "Toplam {0}";
+    public static string StatusMapUnknown = "Çıkış ülkesi belirlenemedi";
     public static string StatusUdpNotice = "Tor yalnızca TCP taşır. UDP reddedilir, uygulamalar TCP'ye döner.";
 
     // ---- settings: section headers ----

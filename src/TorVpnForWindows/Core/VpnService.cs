@@ -37,6 +37,21 @@ public sealed record VpnStatus(
     string? Message);
 
 /// <summary>
+/// Traffic Tor has carried this session, and how fast it is moving right now.
+///
+/// The totals come from Tor's own counters, so they include its protocol overhead rather than only
+/// the payload an application sees. The rates are the change between two readings a second apart.
+/// </summary>
+public sealed record TrafficSnapshot(
+    long TotalRead,
+    long TotalWritten,
+    double ReadPerSecond,
+    double WritePerSecond)
+{
+    public static readonly TrafficSnapshot Empty = new(0, 0, 0, 0);
+}
+
+/// <summary>
 /// Drives the whole session: Tor first, then the tunnel, then the exit check. Everything the user
 /// interface shows comes from here.
 /// </summary>
@@ -67,11 +82,13 @@ public sealed class VpnService : IAsyncDisposable
 
     public long BytesWritten { get; private set; }
 
+    public TrafficSnapshot Traffic { get; private set; } = TrafficSnapshot.Empty;
+
     public SessionEndpoints? Endpoints => _tor?.Endpoints;
 
     public event Action<VpnStatus>? StatusChanged;
 
-    public event Action<long, long>? TrafficChanged;
+    public event Action<TrafficSnapshot>? TrafficChanged;
 
     public VpnService(AppSettings settings) => Settings = settings;
 
@@ -450,6 +467,11 @@ public sealed class VpnService : IAsyncDisposable
     {
         _statsTask = Task.Run(async () =>
         {
+            var lastRead = 0L;
+            var lastWritten = 0L;
+            var lastAt = DateTime.UtcNow;
+            var haveBaseline = false;
+
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
@@ -464,13 +486,31 @@ public sealed class VpnService : IAsyncDisposable
 
                     var read = await control.GetTrafficAsync(read: true, cancellationToken).ConfigureAwait(false);
                     var written = await control.GetTrafficAsync(read: false, cancellationToken).ConfigureAwait(false);
+                    var now = DateTime.UtcNow;
 
-                    if (read != BytesRead || written != BytesWritten)
+                    // The rate needs two readings, so the first pass only records where to measure
+                    // from. Reporting a rate against a zero baseline would show the whole session's
+                    // traffic as if it had all arrived in one second.
+                    var elapsed = (now - lastAt).TotalSeconds;
+                    var readRate = 0d;
+                    var writeRate = 0d;
+
+                    if (haveBaseline && elapsed > 0.1)
                     {
-                        BytesRead = read;
-                        BytesWritten = written;
-                        TrafficChanged?.Invoke(read, written);
+                        readRate = Math.Max(0, read - lastRead) / elapsed;
+                        writeRate = Math.Max(0, written - lastWritten) / elapsed;
                     }
+
+                    lastRead = read;
+                    lastWritten = written;
+                    lastAt = now;
+                    haveBaseline = true;
+
+                    BytesRead = read;
+                    BytesWritten = written;
+                    Traffic = new TrafficSnapshot(read, written, readRate, writeRate);
+
+                    TrafficChanged?.Invoke(Traffic);
                 }
                 catch (OperationCanceledException)
                 {
@@ -643,6 +683,7 @@ public sealed class VpnService : IAsyncDisposable
 
         BytesRead = 0;
         BytesWritten = 0;
+        Traffic = TrafficSnapshot.Empty;
         _exit = null;
         _bootstrapProgress = 0;
         _bootstrapSummary = null;

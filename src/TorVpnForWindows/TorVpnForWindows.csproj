@@ -67,6 +67,11 @@
                       LogicalName="TorVpnForWindows.lang.en.xml"
                       WithCulture="false" />
 
+    <!-- Land outlines for the status map, produced by tools\Build-WorldMap.ps1. -->
+    <EmbeddedResource Include="Assets\world-map.path"
+                      LogicalName="TorVpnForWindows.world-map.path"
+                      WithCulture="false" />
+
     <!-- One icon per connection state, loaded at runtime for the window and the tray. -->
     <EmbeddedResource Include="Assets\icon-disconnected.ico"
                       LogicalName="TorVpnForWindows.icon-disconnected.ico"

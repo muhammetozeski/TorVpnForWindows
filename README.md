@@ -1,5 +1,7 @@
 # Tor VPN for Windows
 
+### A free, fast, unlimited VPN that collects nothing about you.
+
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6)](#requirements)
 [![Tor](https://img.shields.io/badge/Tor-15.0.21-7D4698)](https://www.torproject.org/)
@@ -39,6 +41,8 @@ configure. This covers the whole machine, including programs that have no proxy 
 | **Bridges** | obfs4, Snowflake and meek, or a list you paste in. Built-in lists are fetched from the Tor Project and cached rather than compiled in. |
 | **Excluded applications** | A plain text list of executables that bypass the tunnel and keep using the normal connection and DNS. |
 | **New circuit** | Ask Tor for fresh circuits and re-check the exit address. |
+| **Live traffic** | Download and upload speed as it happens, with the session totals underneath. |
+| **Exit on a map** | The country the traffic leaves from, marked on a world map. |
 | **Local network** | Printers, network storage and the router stay reachable while connected. |
 | **Two languages** | English and Turkish, following the Windows display language on first start. Adding another is a matter of dropping in one XML file. |
 
@@ -216,6 +220,22 @@ short. It needs administrator rights.
   property of Tor, not of this program.
 - It does not hide from your network that you are using Tor unless bridges are on, and the built-in
   bridges are public enough that a determined censor can block them.
+
+## About the traffic figures
+
+The download and upload numbers come from Tor's own counters, read over its control port. They
+count what Tor moved, which includes its protocol overhead, so they run a little above the payload
+an application sees. The speeds are the change between two readings a second apart.
+
+Nothing about the traffic leaves the machine. The counters are two integers Tor already keeps; no
+per-connection record is made, and there is nowhere for one to be sent.
+
+## About the map
+
+The outlines are Natural Earth's public domain 110m land layer, projected equirectangularly at
+build time by `tools\Build-WorldMap.ps1` and embedded as vector path data. The marker is placed from
+a table of country centres in `CountryLocations.cs`; the country itself comes from Tor's own GeoIP
+database, looked up locally over the control port rather than from a geolocation service.
 
 ## Third-party components
 

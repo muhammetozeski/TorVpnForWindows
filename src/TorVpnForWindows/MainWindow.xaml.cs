@@ -47,9 +47,11 @@ public partial class MainWindow : Window
         _tray.DisconnectRequested += () => _ = _vpn.DisconnectAsync();
         _tray.ExitRequested += () => { _reallyClosing = true; Close(); };
 
+        LoadWorldMap();
         LoadSettingsIntoControls();
         ApplyStrings();
         Render(_vpn.CurrentStatus);
+        RenderTraffic(_vpn.Traffic);
 
         SourceInitialized += (_, _) => WindowChromeHelper.UseDarkTitleBar(this);
         Loaded += OnLoaded;
@@ -94,6 +96,7 @@ public partial class MainWindow : Window
         ExitCountryLabel.Text = Strings.StatusExitCountry;
         DownloadLabel.Text = Strings.StatusDownload;
         UploadLabel.Text = Strings.StatusUpload;
+        RenderTraffic(_vpn.Traffic);
 
         SectionConnection.Text = Strings.SectionConnection;
         SectionNetwork.Text = Strings.SectionNetwork;
@@ -238,11 +241,81 @@ public partial class MainWindow : Window
 
     private void OnStatusChanged(VpnStatus status) => Dispatcher.Invoke(() => Render(status));
 
-    private void OnTrafficChanged(long read, long written) => Dispatcher.Invoke(() =>
+    private void OnTrafficChanged(TrafficSnapshot traffic) => Dispatcher.Invoke(() => RenderTraffic(traffic));
+
+    private void RenderTraffic(TrafficSnapshot traffic)
     {
-        DownloadValue.Text = FormatBytes(read);
-        UploadValue.Text = FormatBytes(written);
-    });
+        DownloadSpeed.Text = FormatRate(traffic.ReadPerSecond);
+        UploadSpeed.Text = FormatRate(traffic.WritePerSecond);
+
+        DownloadTotal.Text = string.Format(CultureInfo.CurrentCulture, Strings.StatusTotalFormat, FormatBytes(traffic.TotalRead));
+        UploadTotal.Text = string.Format(CultureInfo.CurrentCulture, Strings.StatusTotalFormat, FormatBytes(traffic.TotalWritten));
+    }
+
+    /// <summary>Loads the land outlines once and keeps them; the geometry never changes.</summary>
+    private void LoadWorldMap()
+    {
+        try
+        {
+            using var stream = System.Reflection.Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream("TorVpnForWindows.world-map.path");
+
+            if (stream is null)
+            {
+                Log.App("The world map outlines are missing from the assembly; the map is hidden.");
+                return;
+            }
+
+            using var reader = new StreamReader(stream);
+            var data = reader.ReadToEnd();
+
+            var geometry = System.Windows.Media.Geometry.Parse(data);
+            geometry.Freeze();
+            MapLand.Data = geometry;
+            _mapReady = true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not load the world map", ex);
+        }
+    }
+
+    private void RenderMap(ExitInfo? exit, bool visible)
+    {
+        MapCard.Visibility = visible && _mapReady ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!visible || !_mapReady)
+        {
+            return;
+        }
+
+        var position = CountryLocations.Project(exit?.CountryCode, MapCanvas.Width, 360);
+
+        if (position is null)
+        {
+            MapMarker.Visibility = Visibility.Collapsed;
+            MapHalo.Visibility = Visibility.Collapsed;
+            MapUnknownText.Text = Strings.StatusMapUnknown;
+            MapUnknownText.Visibility = exit is null ? Visibility.Collapsed : Visibility.Visible;
+            return;
+        }
+
+        MapUnknownText.Visibility = Visibility.Collapsed;
+
+        // The canvas shows the map shifted up by the same amount as the outlines, so the empty
+        // Antarctic band is cropped. The marker has to move with it.
+        const double mapOffsetY = 12;
+
+        Canvas.SetLeft(MapMarker, position.Value.X - (MapMarker.Width / 2));
+        Canvas.SetTop(MapMarker, position.Value.Y - mapOffsetY - (MapMarker.Height / 2));
+        Canvas.SetLeft(MapHalo, position.Value.X - (MapHalo.Width / 2));
+        Canvas.SetTop(MapHalo, position.Value.Y - mapOffsetY - (MapHalo.Height / 2));
+
+        MapMarker.Visibility = Visibility.Visible;
+        MapHalo.Visibility = Visibility.Visible;
+    }
+
+    private bool _mapReady;
 
     private void Render(VpnStatus status)
     {
@@ -302,6 +375,7 @@ public partial class MainWindow : Window
         ExitCard.Visibility = showSession ? Visibility.Visible : Visibility.Collapsed;
         TrafficPanel.Visibility = showSession ? Visibility.Visible : Visibility.Collapsed;
         UdpNotice.Visibility = showSession ? Visibility.Visible : Visibility.Collapsed;
+        RenderMap(status.Exit, showSession);
 
         if (status.Exit is { } exit)
         {
@@ -345,10 +419,12 @@ public partial class MainWindow : Window
         _tray.Update(connected, status.State);
     }
 
-    private static string FormatBytes(long bytes)
+    private static string FormatBytes(long bytes) => FormatBytes((double)bytes);
+
+    private static string FormatBytes(double bytes)
     {
         string[] units = ["B", "KB", "MB", "GB", "TB"];
-        double value = bytes;
+        var value = bytes;
         var unit = 0;
 
         while (value >= 1024 && unit < units.Length - 1)
@@ -358,9 +434,11 @@ public partial class MainWindow : Window
         }
 
         return unit == 0
-            ? $"{bytes} {units[0]}"
+            ? string.Format(CultureInfo.CurrentCulture, "{0:0} {1}", value, units[unit])
             : string.Format(CultureInfo.CurrentCulture, "{0:0.#} {1}", value, units[unit]);
     }
+
+    private static string FormatRate(double bytesPerSecond) => FormatBytes(bytesPerSecond) + "/s";
 
     private void OnLogEntry(LogEntry entry) => Dispatcher.BeginInvoke(() =>
     {

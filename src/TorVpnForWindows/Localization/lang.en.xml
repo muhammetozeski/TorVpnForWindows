@@ -34,8 +34,10 @@
   <s name="StatusUnknown">Unknown</s>
   <s name="StatusNotConfirmed">check.torproject.org does not recognise this address as a Tor exit</s>
   <s name="StatusConfirmed">Confirmed by check.torproject.org that this is going through Tor</s>
-  <s name="StatusDownload">Received</s>
-  <s name="StatusUpload">Sent</s>
+  <s name="StatusDownload">Download</s>
+  <s name="StatusUpload">Upload</s>
+  <s name="StatusTotalFormat">{0} total</s>
+  <s name="StatusMapUnknown">Exit country could not be determined</s>
   <s name="StatusUdpNotice">Tor carries TCP only. UDP is refused, so applications fall back to TCP.</s>
 
   <s name="SectionConnection">CONNECTION</s>
