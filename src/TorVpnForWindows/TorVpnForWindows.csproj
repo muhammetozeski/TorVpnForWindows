@@ -29,7 +29,6 @@
     <Company>muhammetozeski</Company>
     <Copyright>Copyright (c) 2026 muhammetozeski</Copyright>
 
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType>embedded</DebugType>
@@ -45,6 +44,14 @@
 
   <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)\Assets\icon.ico')">
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!--
+    Bundle compression only applies to a self-contained publish; asking for it on a
+    framework-dependent one is an error rather than a no-op.
+  -->
+  <PropertyGroup Condition="'$(SelfContained)' == 'true'">
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
   <ItemGroup>
