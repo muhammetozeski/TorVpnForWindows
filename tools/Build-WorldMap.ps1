@@ -49,7 +49,11 @@ function Add-Ring($ring) {
         $y = (90.0 - $lat) / 180.0 * $script:Height
 
         # One decimal is under a tenth of a pixel at this size and keeps the string small.
-        $pair = '{0:0.#},{1:0.#}' -f $x, $y
+        #
+        # Formatted with the invariant culture on purpose. Under a culture that uses a comma as the
+        # decimal separator, "224.5" comes out as "224,5" and the comma is also what separates the
+        # two coordinates, so the path data becomes unparseable nonsense.
+        $pair = [string]::Format([cultureinfo]::InvariantCulture, '{0:0.#},{1:0.#}', $x, $y)
 
         if ($first) {
             [void]$script:builder.Append('M').Append($pair)
