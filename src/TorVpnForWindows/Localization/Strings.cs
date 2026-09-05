@@ -46,8 +46,8 @@ internal static class Strings
     public static string StatusExitCountry = "Çıkış ülkesi";
     public static string StatusChecking = "Denetleniyor…";
     public static string StatusUnknown = "Bilinmiyor";
-    public static string StatusNotConfirmed = "Tor Project bu bağlantıyı doğrulayamadı.";
-    public static string StatusConfirmed = "Tor Project tarafından doğrulandı";
+    public static string StatusNotConfirmed = "IP doğrulanamadı, bu bir Tor çıkış rölesi değil";
+    public static string StatusConfirmed = "IP doğrulandı";
     public static string StatusDownload = "Alınan";
     public static string StatusUpload = "Gönderilen";
     public static string StatusUdpNotice = "Tor yalnızca TCP taşır. UDP reddedilir, uygulamalar TCP'ye döner.";

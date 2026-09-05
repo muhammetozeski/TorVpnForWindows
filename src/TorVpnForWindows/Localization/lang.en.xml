@@ -32,8 +32,8 @@
   <s name="StatusExitCountry">Exit country</s>
   <s name="StatusChecking">Checking…</s>
   <s name="StatusUnknown">Unknown</s>
-  <s name="StatusNotConfirmed">The Tor Project could not confirm this connection.</s>
-  <s name="StatusConfirmed">Confirmed by the Tor Project</s>
+  <s name="StatusNotConfirmed">IP not verified, this is not a Tor exit relay</s>
+  <s name="StatusConfirmed">IP verified</s>
   <s name="StatusDownload">Received</s>
   <s name="StatusUpload">Sent</s>
   <s name="StatusUdpNotice">Tor carries TCP only. UDP is refused, so applications fall back to TCP.</s>
