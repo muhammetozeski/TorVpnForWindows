@@ -117,10 +117,12 @@ internal static class LocManager
         {
             if (language == "tr")
             {
-                // Turkish is what the fields already hold, unless another language overwrote them.
-                if (Current != "tr")
+                // The fields already hold Turkish, but lang.tr.xml is editable, so it is read back
+                // whenever it exists. Skipping it would silently discard the user's own wording.
+                var turkishPath = PathFor("tr");
+                if (File.Exists(turkishPath))
                 {
-                    ReadInto(PathFor("tr"));
+                    ReadInto(turkishPath);
                 }
             }
             else
