@@ -105,6 +105,9 @@ time, so a list frozen at build time ages with the release rather than with the 
 current list is fetched and cached; the compiled-in copy is only used when that endpoint cannot be
 reached, which is exactly when someone needs bridges most.
 
+If something behaves unexpectedly, [docs/Troubleshooting.md](docs/Troubleshooting.md) covers the
+cases that actually come up.
+
 ## Requirements
 
 - Windows 10 or 11, 64-bit

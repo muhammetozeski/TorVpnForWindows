@@ -57,7 +57,7 @@
 
             <!-- ============================ STATUS ============================ -->
             <TabItem x:Name="TabStatus" Header="Status">
-                <Grid Margin="20,18,20,18">
+                <Grid Margin="20,18,20,18" MaxWidth="520" HorizontalAlignment="Center">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -163,7 +163,9 @@
             <!-- ============================ SETTINGS ============================ -->
             <TabItem x:Name="TabSettings" Header="Settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20,4,20,20">
-                    <StackPanel>
+                    <!-- Capped so the labels and their controls stay together when the window is
+                         widened; without it the pickers drift to the far right edge. -->
+                    <StackPanel MaxWidth="520" HorizontalAlignment="Left">
 
                         <TextBlock x:Name="SectionConnection" Style="{StaticResource SectionHeader}"
                                    Text="CONNECTION" Margin="0,14,0,8" />

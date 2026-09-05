@@ -19,8 +19,13 @@ PFX-PAROLA.txt
 *.pfx
 *.snk
 
-# Generated icon intermediates
+# Generated icon intermediates. The finished PNG and ICO files are committed; the artwork they were
+# produced from is not.
+src/TorVpnForWindows/Assets/raw-*
 src/TorVpnForWindows/Assets/icon-raw.*
+
+# Local notes about this machine's publishing workflow. docs/ is published; docsIgnore/ is not.
+docsIgnore/
 
 # IDE
 .vs/

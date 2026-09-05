@@ -334,6 +334,14 @@ public partial class MainWindow : Window
         NewIdentityButton.IsEnabled = connected;
         NewIdentityButton.Content = Strings.ButtonNewIdentity;
 
+        // The title bar and task bar follow the same three icons as the notification area, so the
+        // state is readable without opening or hovering anything.
+        var windowIcon = StateIcons.ForWindow(status.State);
+        if (windowIcon is not null)
+        {
+            Icon = windowIcon;
+        }
+
         _tray.Update(connected, status.State);
     }
 
@@ -586,5 +594,15 @@ public partial class MainWindow : Window
         Application.Current.Shutdown();
     }
 
-    private sealed record ComboItem(string Value, string Label);
+    /// <summary>
+    /// An entry in one of the settings pickers.
+    ///
+    /// ToString is overridden rather than relying on DisplayMemberPath alone: the custom ComboBox
+    /// template renders the closed state through a ContentPresenter, and without a string of its own
+    /// the record printed its compiler generated form into the box.
+    /// </summary>
+    private sealed record ComboItem(string Value, string Label)
+    {
+        public override string ToString() => Label;
+    }
 }

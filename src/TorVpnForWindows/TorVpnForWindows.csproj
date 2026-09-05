@@ -20,9 +20,9 @@
 
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.1.0</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
     <Product>Tor VPN for Windows</Product>
     <AssemblyTitle>Tor VPN for Windows</AssemblyTitle>
     <Description>Routes all Windows traffic through the Tor network using a TUN adapter.</Description>
@@ -65,6 +65,17 @@
     -->
     <EmbeddedResource Include="Localization\lang.en.xml"
                       LogicalName="TorVpnForWindows.lang.en.xml"
+                      WithCulture="false" />
+
+    <!-- One icon per connection state, loaded at runtime for the window and the tray. -->
+    <EmbeddedResource Include="Assets\icon-disconnected.ico"
+                      LogicalName="TorVpnForWindows.icon-disconnected.ico"
+                      WithCulture="false" />
+    <EmbeddedResource Include="Assets\icon-connecting.ico"
+                      LogicalName="TorVpnForWindows.icon-connecting.ico"
+                      WithCulture="false" />
+    <EmbeddedResource Include="Assets\icon-connected.ico"
+                      LogicalName="TorVpnForWindows.icon-connected.ico"
                       WithCulture="false" />
   </ItemGroup>
 

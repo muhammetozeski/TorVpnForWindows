@@ -46,7 +46,7 @@ public sealed class TrayIcon : IDisposable
 
         _icon = new NotifyIcon
         {
-            Icon = LoadIcon(),
+            Icon = StateIcons.ForTray(VpnState.Disconnected),
             Text = Strings.TrayTipDisconnected,
             Visible = true,
             ContextMenuStrip = menu
@@ -69,30 +69,17 @@ public sealed class TrayIcon : IDisposable
         var text = connected ? Strings.TrayTipConnected : Strings.TrayTipDisconnected;
         _icon.Text = text.Length > 62 ? text[..62] : text;
 
-        _connectItem.Enabled = state is VpnState.Disconnected or VpnState.Failed or VpnState.Interrupted;
-        _disconnectItem.Enabled = state is not (VpnState.Disconnected or VpnState.Disconnecting);
-    }
-
-    private static Icon LoadIcon()
-    {
         try
         {
-            var path = Environment.ProcessPath;
-            if (path is not null)
-            {
-                var extracted = Icon.ExtractAssociatedIcon(path);
-                if (extracted is not null)
-                {
-                    return extracted;
-                }
-            }
+            _icon.Icon = StateIcons.ForTray(state);
         }
         catch (Exception ex)
         {
-            Log.Error("Could not read the application icon for the notification area", ex);
+            Log.Error("Could not change the notification area icon", ex);
         }
 
-        return SystemIcons.Shield;
+        _connectItem.Enabled = state is VpnState.Disconnected or VpnState.Failed or VpnState.Interrupted;
+        _disconnectItem.Enabled = state is not (VpnState.Disconnected or VpnState.Disconnecting);
     }
 
     public void Dispose()

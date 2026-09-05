@@ -95,9 +95,76 @@ if ($SkipSigning) {
     if ($LASTEXITCODE -ne 0) { throw "Signature verification failed with exit code $LASTEXITCODE." }
 }
 
+# --- bundle with the helper programs ------------------------------------------------------------
+# The executable already contains these, so the archive is not needed to run the program. It exists
+# so the third-party binaries can be inspected without unpacking the executable, and so the folder
+# can be put on PATH, which makes the application prefer these copies over its embedded ones.
+Write-Step 'building the archive with the helper programs'
+
+$bundleRoot = Join-Path $RepoRoot 'build\bundle'
+if (Test-Path $bundleRoot) { Remove-Item $bundleRoot -Recurse -Force }
+New-Item -ItemType Directory -Force (Join-Path $bundleRoot 'bin') | Out-Null
+
+Copy-Item (Join-Path $PublishDir 'TorVpnForWindows.exe') $bundleRoot -Force
+Copy-Item (Join-Path $RepoRoot 'README.md') $bundleRoot -Force
+Copy-Item (Join-Path $RepoRoot 'LICENSE') $bundleRoot -Force
+
+$payload = Join-Path $RepoRoot 'payload'
+Copy-Item (Join-Path $payload 'tor\tor.exe')                              (Join-Path $bundleRoot 'bin') -Force
+Copy-Item (Join-Path $payload 'tor\pluggable_transports\lyrebird.exe')    (Join-Path $bundleRoot 'bin') -Force
+Copy-Item (Join-Path $payload 'sing-box\sing-box.exe')                    (Join-Path $bundleRoot 'bin') -Force
+Copy-Item (Join-Path $payload 'sing-box\wintun.dll')                      (Join-Path $bundleRoot 'bin') -Force
+Copy-Item (Join-Path $payload 'sing-box\LICENSE')                         (Join-Path $bundleRoot 'bin\sing-box-LICENSE.txt') -Force
+Copy-Item (Join-Path $payload 'sing-box\wintun-LICENSE.txt')              (Join-Path $bundleRoot 'bin') -Force
+Copy-Item (Join-Path $payload 'tor\data\geoip')                           (Join-Path $bundleRoot 'bin') -Force
+Copy-Item (Join-Path $payload 'tor\data\geoip6')                          (Join-Path $bundleRoot 'bin') -Force
+
+@'
+Tor VPN for Windows - portable bundle
+
+Run TorVpnForWindows.exe. It asks for administrator rights, which it needs to create the network
+adapter, install routes and apply the kill switch filters.
+
+The bin folder holds the third-party programs the application uses:
+
+  tor.exe        the Tor client
+  lyrebird.exe   the pluggable transport used for obfs4, Snowflake and meek bridges
+  sing-box.exe   creates the network adapter and does the routing
+  wintun.dll     the adapter driver sing-box loads
+  geoip, geoip6  the databases Tor uses for exit country selection
+
+You do not need them to run the program: identical copies are already inside the executable and are
+unpacked on first run. They are here so they can be inspected, checked against the publishers'
+own releases, or kept up to date independently.
+
+To use these copies instead of the embedded ones, add this bin folder to your PATH. The application
+looks there first and falls back to its own copies, so a version you keep updated wins.
+
+Sources and versions are listed in README.md.
+'@ | Set-Content (Join-Path $bundleRoot 'OKUBENI-READ-ME-FIRST.txt') -Encoding utf8
+
+$bundleZip = Join-Path $PublishDir 'TorVpnForWindows-portable-with-tools.zip'
+Compress-Archive -Path (Join-Path $bundleRoot '*') -DestinationPath $bundleZip -Force
+
+Remove-Item $bundleRoot -Recurse -Force
+
 Write-Host ''
 Write-Host 'Published:' -ForegroundColor White
 Get-ChildItem $PublishDir -File | ForEach-Object {
     '  {0,8:N1} MB  {1}' -f ($_.Length / 1MB), $_.Name
 }
+
+# --- copy to the local programs folder ------------------------------------------------------------
+$LocalPrograms = 'C:\E\kp\aaBenimProgramlarim\TorVpnForWindows'
+
+try {
+    New-Item -ItemType Directory -Force $LocalPrograms | Out-Null
+    Copy-Item (Join-Path $PublishDir 'TorVpnForWindows.exe') $LocalPrograms -Force
+    Write-Host ''
+    Write-Host "Copied the portable build to $LocalPrograms" -ForegroundColor Green
+} catch {
+    Write-Host ''
+    Write-Host "Could not copy to ${LocalPrograms}: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 Write-Host ''

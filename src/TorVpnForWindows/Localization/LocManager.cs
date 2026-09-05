@@ -91,14 +91,16 @@ internal static class LocManager
         {
             Directory.CreateDirectory(Folder);
 
-            // Keep an editable Turkish baseline, written from the values compiled into Strings.
-            var turkishPath = PathFor("tr");
-            if (!File.Exists(turkishPath))
-            {
-                WriteXml(turkishPath, "Türkçe");
-            }
+            // The shipped files are rewritten when the application version changes.
+            //
+            // They are written once and then loaded over the compiled-in text, so without this a
+            // wording change in a new build never reaches the screen: the stale file wins and the
+            // interface silently keeps the old version's text. A copy of the previous file is kept
+            // alongside so hand edits are not simply thrown away.
+            var currentVersion = AppPaths.PayloadVersion;
 
-            ExtractEnglishIfMissing();
+            RefreshShippedFile(PathFor("tr"), currentVersion, () => WriteXml(PathFor("tr"), "Türkçe", currentVersion));
+            RefreshShippedFile(PathFor("en"), currentVersion, () => ExtractEnglish(currentVersion));
         }
         catch (Exception ex)
         {
@@ -106,6 +108,47 @@ internal static class LocManager
         }
 
         Apply(configuredLanguage);
+    }
+
+    private static void RefreshShippedFile(string path, string currentVersion, Action write)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                write();
+                return;
+            }
+
+            var stamped = ReadVersion(path);
+            if (stamped == currentVersion)
+            {
+                return;
+            }
+
+            var backup = path + ".previous";
+            File.Copy(path, backup, overwrite: true);
+            Log.App($"{Path.GetFileName(path)} was written by version {stamped ?? "unknown"}; refreshing it and keeping the old one as {Path.GetFileName(backup)}");
+
+            write();
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Could not refresh {Path.GetFileName(path)}", ex);
+        }
+    }
+
+    private static string? ReadVersion(string path)
+    {
+        try
+        {
+            return XDocument.Load(path).Root?.Element("Version")?.Value;
+        }
+        catch (Exception ex)
+        {
+            Log.App($"Could not read the version stamp from {Path.GetFileName(path)}: {ex.GetType().Name}");
+            return null;
+        }
     }
 
     /// <summary>Loads a language over the <see cref="Strings"/> fields and notifies listeners.</summary>
@@ -196,12 +239,13 @@ internal static class LocManager
     }
 
     /// <summary>Reflection-writes the current field values to an XML file.</summary>
-    private static void WriteXml(string path, string languageName)
+    private static void WriteXml(string path, string languageName, string version)
     {
         try
         {
             var doc = new XDocument(new XElement("strings",
                 new XElement("LanguageName", languageName),
+                new XElement("Version", version),
                 StringFields().Select(f => new XElement("s",
                     new XAttribute("name", f.Name),
                     Escape((string?)f.GetValue(null) ?? string.Empty)))));
@@ -242,13 +286,9 @@ internal static class LocManager
         }
     }
 
-    private static void ExtractEnglishIfMissing()
+    private static void ExtractEnglish(string version)
     {
         var path = PathFor("en");
-        if (File.Exists(path))
-        {
-            return;
-        }
 
         try
         {
@@ -259,8 +299,14 @@ internal static class LocManager
                 return;
             }
 
-            using var file = File.Create(path);
-            stream.CopyTo(file);
+            var doc = XDocument.Load(stream);
+
+            // The stamp is added on the way out rather than kept in the source file, so it cannot
+            // drift from the version that actually shipped it.
+            doc.Root?.Element("Version")?.Remove();
+            doc.Root?.AddFirst(new XElement("Version", version));
+
+            doc.Save(path);
             Log.App("Wrote lang.en.xml");
         }
         catch (Exception ex)
