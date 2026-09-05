@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<strings>
+  <LanguageName>English</LanguageName>
+
+  <s name="AppTitle">Tor VPN for Windows</s>
+  <s name="AppSubtitle">All traffic through Tor</s>
+
+  <s name="TabStatus">Status</s>
+  <s name="TabSettings">Settings</s>
+  <s name="TabLog">Log</s>
+
+  <s name="ButtonConnect">Connect</s>
+  <s name="ButtonDisconnect">Disconnect</s>
+  <s name="ButtonCancel">Cancel</s>
+  <s name="ButtonRetry">Try again</s>
+  <s name="ButtonNewIdentity">New circuit</s>
+
+  <s name="StateDisconnected">Not connected</s>
+  <s name="StatePreparing">Preparing</s>
+  <s name="StateBootstrapping">Connecting to Tor</s>
+  <s name="StateEstablishingTunnel">Setting up the tunnel</s>
+  <s name="StateConnected">Connected</s>
+  <s name="StateDisconnecting">Disconnecting</s>
+  <s name="StateInterrupted">Traffic blocked</s>
+  <s name="StateFailed">Failed</s>
+
+  <s name="HintDisconnected">Your traffic is going out normally.</s>
+  <s name="HintConnected">Every connection on this machine goes through Tor.</s>
+  <s name="HintInterrupted">Tor stopped. The kill switch is holding traffic back.</s>
+
+  <s name="StatusExitAddress">Exit address</s>
+  <s name="StatusExitCountry">Exit country</s>
+  <s name="StatusChecking">Checking…</s>
+  <s name="StatusUnknown">Unknown</s>
+  <s name="StatusNotConfirmed">The Tor Project could not confirm this connection.</s>
+  <s name="StatusConfirmed">Confirmed by the Tor Project</s>
+  <s name="StatusDownload">Received</s>
+  <s name="StatusUpload">Sent</s>
+  <s name="StatusUdpNotice">Tor carries TCP only. UDP is refused, so applications fall back to TCP.</s>
+
+  <s name="SectionConnection">CONNECTION</s>
+  <s name="SectionNetwork">NETWORK</s>
+  <s name="SectionApplication">APPLICATION</s>
+  <s name="SectionAdvanced">ADVANCED</s>
+
+  <s name="SettingLanguage">Language</s>
+  <s name="LanguageSystem">Follow Windows</s>
+
+  <s name="SettingExitCountry">Exit country</s>
+  <s name="ExitCountryAny">Any country</s>
+  <s name="SettingExitCountryHint">Tor will only use exit relays in this country. Picking one that has few relays makes connecting slower and can fail outright.</s>
+
+  <s name="SettingBridges">Bridges</s>
+  <s name="BridgeNone">Off</s>
+  <s name="BridgeObfs4">obfs4</s>
+  <s name="BridgeSnowflake">Snowflake</s>
+  <s name="BridgeMeek">meek</s>
+  <s name="BridgeCustom">Custom list</s>
+  <s name="SettingBridgesHint">Bridges hide the fact that you are using Tor from whoever runs your network. The built-in lists are fetched from the Tor Project and cached.</s>
+  <s name="SettingBridgesCustomHint">One bridge line per line. Get them from bridges.torproject.org.</s>
+
+  <s name="SettingKillSwitch">Kill switch</s>
+  <s name="SettingKillSwitchHint">If Tor stops, keep the routes in place so traffic fails instead of leaving unprotected.</s>
+  <s name="SettingStrictRoute">Strict routing</s>
+  <s name="SettingStrictRouteHint">Blocks DNS on every other adapter. Turn this off only if it breaks something like VirtualBox.</s>
+  <s name="SettingAllowLan">Allow local network</s>
+  <s name="SettingAllowLanHint">Keeps printers, network storage and your router reachable while connected.</s>
+  <s name="SettingAutoConnect">Connect on start</s>
+  <s name="SettingMinimizeToTray">Close to the notification area</s>
+  <s name="SettingStartMinimized">Start minimised</s>
+
+  <s name="SettingExclusions">Excluded applications</s>
+  <s name="SettingExclusionsHint">Traffic from these programs bypasses the tunnel and resolves names with your usual DNS servers.</s>
+  <s name="ExclusionsOpen">Open the list</s>
+  <s name="ExclusionsCountFormat">{0} program(s) excluded</s>
+  <s name="ExclusionsNone">No programs excluded</s>
+
+  <s name="SettingTunName">Adapter name</s>
+  <s name="SettingMtu">MTU</s>
+  <s name="SettingRestartNeeded">Changes apply the next time you connect.</s>
+
+  <s name="LogCopy">Copy</s>
+  <s name="LogClear">Clear</s>
+  <s name="LogOpenFolder">Open folder</s>
+  <s name="LogAutoScroll">Auto scroll</s>
+
+  <s name="TrayShow">Open</s>
+  <s name="TrayConnect">Connect</s>
+  <s name="TrayDisconnect">Disconnect</s>
+  <s name="TrayExit">Quit</s>
+  <s name="TrayTipConnected">Tor VPN: connected</s>
+  <s name="TrayTipDisconnected">Tor VPN: not connected</s>
+
+  <s name="ErrorTitle">Something went wrong</s>
+  <s name="ErrorAlreadyRunning">Tor VPN for Windows is already running.</s>
+  <s name="ErrorNeedsAdmin">This program needs administrator rights to create the network adapter.</s>
+  <s name="ConfirmQuitTitle">Quit</s>
+  <s name="ConfirmQuitWhileConnected">The tunnel is up. Quitting will disconnect it. Continue?</s>
+</strings>
