@@ -22,11 +22,17 @@ public sealed partial class TorRunner : IAsyncDisposable
 
     public SessionEndpoints? Endpoints { get; private set; }
 
+    /// <summary>Identifier of the process that was started, which may be a launcher rather than Tor itself.</summary>
+    public int? ProcessId => _process?.Id;
+
     public TorControlClient? Control => _control;
 
     public bool IsRunning => _process is { HasExited: false };
 
     public event Action<BootstrapStatus>? BootstrapChanged;
+
+    /// <summary>Raised right after the process starts, before Tor is expected to reach the network.</summary>
+    public Func<int, Task>? ProcessStarted { get; set; }
 
     /// <summary>Raised when tor.exe exits without being asked to.</summary>
     public event Action<int>? Exited;
@@ -97,6 +103,14 @@ public sealed partial class TorRunner : IAsyncDisposable
         _process.BeginErrorReadLine();
 
         Log.App($"tor.exe started, PID {_process.Id}");
+
+        // Give the caller a chance to permit whatever this actually launched before Tor needs the
+        // network. A launcher on PATH starts the real binary as a separate process, and only that
+        // one talks to the network.
+        if (ProcessStarted is not null)
+        {
+            await ProcessStarted(_process.Id).ConfigureAwait(false);
+        }
 
         await WaitForControlPortAsync(Endpoints.ControlPort, cancellationToken).ConfigureAwait(false);
 

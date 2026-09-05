@@ -158,6 +158,57 @@ public sealed class KillSwitchGuard : IDisposable
         }
     }
 
+    /// <summary>
+    /// Adds permits for a process and everything it started, polling briefly because a launcher
+    /// starts the real program a moment after it starts itself.
+    ///
+    /// Without this a shim on PATH is permitted while the executable it launches is not, and Tor
+    /// sits at zero per cent forever with no indication why.
+    /// </summary>
+    public async Task PermitProcessTreeAsync(int rootProcessId, TimeSpan window, CancellationToken cancellationToken)
+    {
+        if (!IsArmed)
+        {
+            return;
+        }
+
+        var permitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deadline = DateTime.UtcNow + window;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            foreach (var path in ProcessTree.GetImagePaths(rootProcessId))
+            {
+                if (!permitted.Add(path))
+                {
+                    continue;
+                }
+
+                lock (_gate)
+                {
+                    if (!_armed)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        AddApplicationPermit(path);
+                        Log.App($"Kill switch: also permitting {Path.GetFileName(path)} ({path})");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"Could not permit {path}", ex);
+                    }
+                }
+            }
+
+            await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>Revokes the tunnel permit, so only Tor's own processes can still reach the network.</summary>
     public void CloseTunnel()
     {

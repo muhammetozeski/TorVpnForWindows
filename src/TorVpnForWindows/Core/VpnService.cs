@@ -135,6 +135,8 @@ public sealed class VpnService : IAsyncDisposable
             _tor = new TorRunner(_job);
             _tor.BootstrapChanged += OnBootstrapChanged;
             _tor.Exited += OnTorExited;
+            _tor.ProcessStarted = pid =>
+                _killSwitch.PermitProcessTreeAsync(pid, TimeSpan.FromSeconds(6), token);
 
             SetState(VpnState.Bootstrapping, null);
             await _tor.StartAsync(Settings, binaries, token).ConfigureAwait(false);
