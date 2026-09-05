@@ -55,7 +55,17 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Localization\lang.en.xml" LogicalName="TorVpnForWindows.lang.en.xml" />
+    <None Remove="Localization\lang.en.xml" />
+
+    <!--
+      WithCulture="false" is not optional here. The SDK reads a file named <name>.<culture>.<ext>
+      as culture specific, so lang.en.xml was compiled into the English satellite assembly instead
+      of the main one and LocManager could never find it at runtime. The application started in
+      Turkish and reported English as unavailable, with nothing in the build output to say why.
+    -->
+    <EmbeddedResource Include="Localization\lang.en.xml"
+                      LogicalName="TorVpnForWindows.lang.en.xml"
+                      WithCulture="false" />
   </ItemGroup>
 
   <ItemGroup>
