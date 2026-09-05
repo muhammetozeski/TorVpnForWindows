@@ -148,6 +148,21 @@ Compress-Archive -Path (Join-Path $bundleRoot '*') -DestinationPath $bundleZip -
 
 Remove-Item $bundleRoot -Recurse -Force
 
+# --- signature trust files ------------------------------------------------------------------------
+# Shipped with every release so Windows can be told to trust the signing certificate. Built here
+# rather than by hand, because the publish folder is emptied at the start of every run.
+if (-not $SkipSigning) {
+    $trustSource = Join-Path $SigningDir 'Dagitim'
+
+    if (Test-Path $trustSource) {
+        Write-Step 'packaging the signature trust files'
+        Compress-Archive -Path (Join-Path $trustSource '*') `
+                         -DestinationPath (Join-Path $PublishDir 'SignatureTrust.zip') -Force
+    } else {
+        Write-Host "  the signature trust folder was not found at $trustSource" -ForegroundColor Yellow
+    }
+}
+
 Write-Host ''
 Write-Host 'Published:' -ForegroundColor White
 Get-ChildItem $PublishDir -File | ForEach-Object {
