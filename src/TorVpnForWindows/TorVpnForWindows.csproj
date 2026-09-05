@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Required by the LibraryImport source generator, which emits unsafe marshalling code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>TorVpnForWindows</RootNamespace>
+    <AssemblyName>TorVpnForWindows</AssemblyName>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>Tor VPN for Windows</Product>
+    <AssemblyTitle>Tor VPN for Windows</AssemblyTitle>
+    <Description>Routes all Windows traffic through the Tor network using a TUN adapter.</Description>
+    <Company>muhammetozeski</Company>
+    <Copyright>Copyright (c) 2026 muhammetozeski</Copyright>
+
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>embedded</DebugType>
+    <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
+
+    <!--
+      WFO0003 asks for DPI awareness to be configured through the Windows Forms API instead of the
+      manifest. This is a WPF application that only borrows Windows Forms for the tray icon, and WPF
+      needs the manifest declaration, so the advice does not apply.
+    -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)\Assets\icon.ico')">
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Localization\lang.en.xml" LogicalName="TorVpnForWindows.lang.en.xml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Windows Forms is only used for the notification area icon. Its implicit global using makes
+      Application, MessageBox and Clipboard ambiguous against their WPF counterparts everywhere
+      else, so it is removed here and imported explicitly in the one file that needs it.
+    -->
+    <Using Remove="System.Windows.Forms" />
+
+    <!-- Same story for System.Drawing: Color and ColorConverter clash with System.Windows.Media. -->
+    <Using Remove="System.Drawing" />
+
+    <!-- The WPF temporary project used for XAML compilation does not carry these by default. -->
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\Assets\icon.ico')">
+    <Resource Include="Assets\icon.ico" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildProjectDirectory)\..\..\tools\Payload.targets" />
+
+</Project>
