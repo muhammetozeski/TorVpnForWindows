@@ -13,8 +13,6 @@ the traffic to Tor.
 Tor Browser protects one browser. A SOCKS proxy protects the applications you remember to
 configure. This covers the whole machine, including programs that have no proxy setting.
 
-![Status](docs/screenshot-status.png)
-
 ## What it actually does
 
 - Starts `tor.exe` and waits for it to finish bootstrapping.
@@ -36,7 +34,7 @@ configure. This covers the whole machine, including programs that have no proxy 
 | | |
 |---|---|
 | **System-wide** | One adapter, one default route. No per-application proxy settings. |
-| **Kill switch** | If Tor stops, the routes stay in place and traffic fails instead of leaving unprotected. On by default. |
+| **Kill switch** | Blocks all traffic at the Windows Filtering Platform, below routing, permitting only the tunnel. If Tor drops, the block stays and the machine stays dark until Tor is back. On by default. |
 | **Exit country** | Restrict the exit relay to a chosen country, resolved against Tor's own GeoIP data. |
 | **Bridges** | obfs4, Snowflake and meek, or a list you paste in. Built-in lists are fetched from the Tor Project and cached rather than compiled in. |
 | **Excluded applications** | A plain text list of executables that bypass the tunnel and keep using the normal connection and DNS. |
@@ -65,6 +63,25 @@ configure. This covers the whole machine, including programs that have no proxy 
 
 `tor.exe` itself is matched by process name and sent straight out of the physical adapter. Without
 that, it would route its own traffic into the tunnel it is providing.
+
+### The kill switch
+
+Pressing connect blocks everything before Tor even starts. Only Tor, its transports, this
+application and the executables in `exclusions.txt` are permitted. Once the tunnel is up, the
+tunnel adapter is permitted too. If Tor or the tunnel drops, that permit is revoked and the machine
+stays offline while a retry loop works on getting back; a network that disappears and returns stays
+blocked until Tor is connected again. Only an explicit disconnect removes the filters.
+
+They are installed in a dynamic Windows Filtering Platform session, so if this application is
+killed or crashes, Windows removes every filter it added. A crash restores networking rather than
+leaving the machine cut off.
+
+Routing alone could not do this. A program that binds to a specific adapter, or anything that
+installs a more specific route, travels around the tunnel without ever consulting the default
+route. These filters sit at the connect layer, below routing.
+
+Note that another VPN client's kill switch works the same way and will block this one; see
+[Known conflicts](#known-conflicts).
 
 ### Choices worth explaining
 
@@ -179,7 +196,13 @@ leave the machine without networking.
 
 `tests\PathResolutionTest` covers the `PATH`-first binary lookup, including the case that motivated
 writing it by hand: a decoy executable in the working directory that `where.exe` returns and the
-resolver must not.
+resolver must not. It needs no privileges.
+
+`tests\KillSwitchTest` arms the filters on their own, without Tor or the tunnel, and checks that a
+permitted process still reaches the network while an unpermitted copy of itself does not, then that
+disarming leaves nothing behind. Keeping it separate from the tunnel test means a mistake in the
+filters shows up in fifteen seconds rather than after a bootstrap, and the blocking window stays
+short. It needs administrator rights.
 
 ## What this does not do
 
