@@ -1,0 +1,34 @@
+# Build output
+bin/
+obj/
+build/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Third-party binaries fetched by tools/Fetch-Payload.ps1.
+# They are downloaded from their official distribution points and verified against pinned
+# SHA-256 digests, so there is no reason to store ~136 MB of them in the repository.
+payload/
+
+# Code signing material. Private keys never belong in a repository or a release.
+Imzalama.pfx
+PFX-PAROLA.txt
+*.pfx
+*.snk
+
+# Generated icon intermediates
+src/TorVpnForWindows/Assets/icon-raw.*
+
+# IDE
+.vs/
+.idea/
+*.swp
+*~
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

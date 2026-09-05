@@ -1,0 +1,39 @@
+<Project>
+
+  <!--
+    Zips <repo>\payload and embeds it as TorVpnForWindows.payload.zip.
+
+    Tor, sing-box and Wintun are not stored in the repository. tools\Fetch-Payload.ps1 downloads
+    them from their official distribution points, verifies pinned SHA-256 digests and stages them
+    under <repo>\payload.
+
+    Imported by both the application and the smoke test, so the test exercises the same embedded
+    runtime the application ships with.
+  -->
+
+  <PropertyGroup>
+    <PayloadDir Condition="'$(PayloadDir)' == ''">$(MSBuildThisFileDirectory)..\payload</PayloadDir>
+    <PayloadZip Condition="'$(PayloadZip)' == ''">$(BaseIntermediateOutputPath)payload.zip</PayloadZip>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PayloadFile Include="$(PayloadDir)\**\*" />
+  </ItemGroup>
+
+  <Target Name="PackPayload" Inputs="@(PayloadFile)" Outputs="$(PayloadZip)">
+    <Error Condition="'@(PayloadFile)' == ''"
+           Text="Payload is missing. Run 'pwsh tools\Fetch-Payload.ps1' from the repository root before building." />
+    <MakeDir Directories="$(BaseIntermediateOutputPath)" />
+    <Message Importance="high" Text="Packing embedded payload -&gt; $(PayloadZip)" />
+    <ZipDirectory SourceDirectory="$(PayloadDir)" DestinationFile="$(PayloadZip)" Overwrite="true" />
+  </Target>
+
+  <Target Name="AddPayloadResource" BeforeTargets="PrepareForBuild" DependsOnTargets="PackPayload">
+    <Error Condition="!Exists('$(PayloadZip)')"
+           Text="Payload archive was not produced. Run 'pwsh tools\Fetch-Payload.ps1' from the repository root." />
+    <ItemGroup>
+      <EmbeddedResource Include="$(PayloadZip)" LogicalName="TorVpnForWindows.payload.zip" Visible="false" />
+    </ItemGroup>
+  </Target>
+
+</Project>
