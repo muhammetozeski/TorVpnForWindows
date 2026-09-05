@@ -310,10 +310,19 @@ public partial class MainWindow : Window
                 ? Strings.StatusUnknown
                 : $"{ExitCountries.DisplayNameOf(exit.CountryCode)} ({exit.CountryCode.ToUpperInvariant()})";
 
-            ExitConfirmText.Text = exit.ConfirmedTor ? Strings.StatusConfirmed : Strings.StatusNotConfirmed;
-            ExitConfirmText.Foreground = exit.ConfirmedTor
-                ? (System.Windows.Media.Brush)FindResource("MutedBrush")
-                : (System.Windows.Media.Brush)FindResource("WarningBrush");
+            // Only the Tor Project's endpoint can answer this. When a fallback address service was
+            // used instead, the line is left out rather than shown as an unresolved warning.
+            if (!exit.TorStatusReported)
+            {
+                ExitConfirmText.Text = string.Empty;
+            }
+            else
+            {
+                ExitConfirmText.Text = exit.ConfirmedTor ? Strings.StatusConfirmed : Strings.StatusNotConfirmed;
+                ExitConfirmText.Foreground = exit.ConfirmedTor
+                    ? (System.Windows.Media.Brush)FindResource("MutedBrush")
+                    : (System.Windows.Media.Brush)FindResource("WarningBrush");
+            }
         }
         else if (showSession)
         {

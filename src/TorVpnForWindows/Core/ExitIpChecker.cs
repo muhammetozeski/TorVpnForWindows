@@ -3,7 +3,15 @@ using System.Text.Json;
 
 namespace TorVpnForWindows.Core;
 
-public sealed record ExitInfo(string IpAddress, string? CountryCode, bool ConfirmedTor);
+/// <summary>
+/// The address traffic left from.
+///
+/// <paramref name="ConfirmedTor"/> is only meaningful when <paramref name="TorStatusReported"/> is
+/// true. The Tor Project's endpoint checks the address against its own list of exit relays and
+/// answers directly; the plain address services used as fallbacks cannot say anything about it, and
+/// showing their silence as "not confirmed" would read as a warning where there is none.
+/// </summary>
+public sealed record ExitInfo(string IpAddress, string? CountryCode, bool ConfirmedTor, bool TorStatusReported);
 
 /// <summary>
 /// Asks the Tor Project's own endpoint which address the traffic came out of. Going through the
@@ -57,7 +65,7 @@ public static class ExitIpChecker
                     $"Exit address {ip}{(country is null ? string.Empty : $" ({country.ToUpperInvariant()})")}" +
                     $", confirmed Tor: {(reportsTorStatus ? isTor.ToString() : "not reported by this endpoint")}");
 
-                return new ExitInfo(ip, country, isTor);
+                return new ExitInfo(ip, country, isTor, reportsTorStatus);
             }
             catch (OperationCanceledException)
             {
