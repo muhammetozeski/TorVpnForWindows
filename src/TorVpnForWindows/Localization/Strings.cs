@@ -81,9 +81,9 @@ internal static class Strings
         "Her satıra bir köprü satırı. bridges.torproject.org adresinden alabilirsiniz.";
 
     // ---- settings: toggles ----
-    public static string SettingKillSwitch = "Kill switch";
+    public static string SettingKillSwitch = "Bağlantı düştüğünde interneti engelle";
     public static string SettingKillSwitchHint =
-        "Tor durursa rotalar yerinde kalır; trafik korumasız çıkmak yerine başarısız olur.";
+        "Tor bağlantısı yokken tüm internet kapalı kalır. Ağ geri geldiğinde de Tor'a bağlanana kadar kapalı kalmaya devam eder.";
     public static string SettingStrictRoute = "Sıkı yönlendirme";
     public static string SettingStrictRouteHint =
         "Diğer tüm bağdaştırıcılarda DNS'i engeller. Yalnızca VirtualBox gibi bir şeyi bozuyorsa kapatın.";

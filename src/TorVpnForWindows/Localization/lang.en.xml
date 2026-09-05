@@ -59,8 +59,8 @@
   <s name="SettingBridgesHint">Bridges hide the fact that you are using Tor from whoever runs your network. The built-in lists are fetched from the Tor Project and cached.</s>
   <s name="SettingBridgesCustomHint">One bridge line per line. Get them from bridges.torproject.org.</s>
 
-  <s name="SettingKillSwitch">Kill switch</s>
-  <s name="SettingKillSwitchHint">If Tor stops, keep the routes in place so traffic fails instead of leaving unprotected.</s>
+  <s name="SettingKillSwitch">Block the internet when the connection drops</s>
+  <s name="SettingKillSwitchHint">While there is no Tor connection the whole internet stays blocked, and it stays blocked when the network comes back until Tor is connected again.</s>
   <s name="SettingStrictRoute">Strict routing</s>
   <s name="SettingStrictRouteHint">Blocks DNS on every other adapter. Turn this off only if it breaks something like VirtualBox.</s>
   <s name="SettingAllowLan">Allow local network</s>

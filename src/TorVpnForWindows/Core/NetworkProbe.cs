@@ -160,6 +160,39 @@ public static class NetworkProbe
         return false;
     }
 
+    /// <summary>IPv4 interface index of an adapter, or null when it is not present.</summary>
+    public static int? GetInterfaceIndex(string name)
+    {
+        try
+        {
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (!nic.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var properties = nic.GetIPProperties();
+
+                try
+                {
+                    return properties.GetIPv4Properties().Index;
+                }
+                catch (NetworkInformationException)
+                {
+                    // No IPv4 on this adapter; the IPv6 index is the same value on Windows.
+                    return properties.GetIPv6Properties().Index;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Could not read the interface index of {name}", ex);
+        }
+
+        return null;
+    }
+
     public static bool AdapterExists(string name)
     {
         try

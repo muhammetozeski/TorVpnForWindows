@@ -44,6 +44,10 @@ public sealed class VpnService : IAsyncDisposable
 {
     private readonly JobObject _job = new();
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
+    private readonly KillSwitchGuard _killSwitch = new();
+
+    /// <summary>True while the kill switch is holding traffic back after an unplanned drop.</summary>
+    public bool TrafficBlocked => _killSwitch.IsArmed && State != VpnState.Connected;
 
     private TorRunner? _tor;
     private SingBoxRunner? _singBox;
@@ -91,8 +95,9 @@ public sealed class VpnService : IAsyncDisposable
                 return;
             }
 
-            // A previous session that ended badly can leave the routes in place.
-            await TearDownAsync().ConfigureAwait(false);
+            // A previous session that ended badly can leave the routes in place. The block, if one
+            // is up, stays: this is a retry, not a decision to stop protecting the machine.
+            await TearDownAsync(disarmKillSwitch: false).ConfigureAwait(false);
 
             _sessionCts = new CancellationTokenSource();
             var token = _sessionCts.Token;
@@ -112,6 +117,21 @@ public sealed class VpnService : IAsyncDisposable
                 Log.App(line);
             }
 
+            var excluded = ExclusionList.Read();
+            if (excluded.Count > 0)
+            {
+                Log.App($"Excluded from the tunnel: {string.Join(", ", excluded)}");
+            }
+
+            // The block goes on before Tor even starts. Everything except Tor's own processes and
+            // the excluded applications is cut off from here until the tunnel is up, and stays cut
+            // off if it later drops.
+            if (Settings.KillSwitch &&
+                !_killSwitch.Arm(KillSwitchGuard.BuildPermitList(binaries, excluded)))
+            {
+                Log.App("The kill switch could not be armed; continuing without it");
+            }
+
             _tor = new TorRunner(_job);
             _tor.BootstrapChanged += OnBootstrapChanged;
             _tor.Exited += OnTorExited;
@@ -127,12 +147,6 @@ public sealed class VpnService : IAsyncDisposable
 
             SetState(VpnState.EstablishingTunnel, null);
 
-            var excluded = ExclusionList.Read();
-            if (excluded.Count > 0)
-            {
-                Log.App($"Excluded from the tunnel: {string.Join(", ", excluded)}");
-            }
-
             // Read the machine's resolvers before the TUN takes over, otherwise the answer is the
             // tunnel's own address.
             var upstreamDns = NetworkProbe.GetUpstreamDnsServers();
@@ -143,6 +157,20 @@ public sealed class VpnService : IAsyncDisposable
             _singBox.Exited += OnSingBoxExited;
             await _singBox.StartAsync(Settings, binaries, endpoints, excluded, upstreamDns, token).ConfigureAwait(false);
 
+            // Let traffic out again, but only through the tunnel adapter.
+            if (_killSwitch.IsArmed)
+            {
+                var index = NetworkProbe.GetInterfaceIndex(Settings.TunInterfaceName);
+                if (index is null)
+                {
+                    throw new InvalidOperationException(
+                        $"The tunnel adapter {Settings.TunInterfaceName} has no interface index, so the kill switch " +
+                        "cannot be opened for it. Traffic would stay blocked.");
+                }
+
+                _killSwitch.OpenTunnel(index.Value);
+            }
+
             SetState(VpnState.Connected, null);
 
             StartStatsLoop(token);
@@ -151,20 +179,77 @@ public sealed class VpnService : IAsyncDisposable
         catch (OperationCanceledException)
         {
             Log.App("Connect was cancelled");
-            await TearDownAsync().ConfigureAwait(false);
+            await TearDownAsync(disarmKillSwitch: true).ConfigureAwait(false);
             SetState(VpnState.Disconnected, null);
         }
         catch (Exception ex)
         {
             Log.Error("Connect failed", ex);
-            await TearDownAsync().ConfigureAwait(false);
-            SetState(VpnState.Failed, ex.Message);
+
+            // With the kill switch on, a failed connect leaves the block in place: the point is
+            // that traffic never leaves unprotected, including while this is still trying.
+            var keepBlocking = _killSwitch.IsArmed;
+            await TearDownAsync(disarmKillSwitch: !keepBlocking).ConfigureAwait(false);
+
+            if (keepBlocking)
+            {
+                SetState(VpnState.Interrupted, ex.Message);
+                ScheduleReconnect();
+            }
+            else
+            {
+                SetState(VpnState.Failed, ex.Message);
+            }
         }
         finally
         {
             _transitionGate.Release();
         }
     }
+
+    /// <summary>
+    /// Retries in the background while the kill switch is holding traffic. This is what gets the
+    /// machine back online by itself after the network drops and returns, without the user having
+    /// to notice and press anything.
+    /// </summary>
+    private void ScheduleReconnect()
+    {
+        if (_reconnectRunning)
+        {
+            return;
+        }
+
+        _reconnectRunning = true;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (State == VpnState.Interrupted && _killSwitch.IsArmed)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+
+                    if (State != VpnState.Interrupted || !_killSwitch.IsArmed)
+                    {
+                        return;
+                    }
+
+                    Log.App("Kill switch is holding traffic; trying to reconnect");
+                    await ConnectAsync().ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("The reconnect loop stopped", ex);
+            }
+            finally
+            {
+                _reconnectRunning = false;
+            }
+        });
+    }
+
+    private volatile bool _reconnectRunning;
 
     public async Task DisconnectAsync()
     {
@@ -178,7 +263,9 @@ public sealed class VpnService : IAsyncDisposable
             }
 
             SetState(VpnState.Disconnecting, null);
-            await TearDownAsync().ConfigureAwait(false);
+
+            // An explicit disconnect is the one case where the block comes off.
+            await TearDownAsync(disarmKillSwitch: true).ConfigureAwait(false);
             SetState(VpnState.Disconnected, null);
         }
         catch (Exception ex)
@@ -416,18 +503,20 @@ public sealed class VpnService : IAsyncDisposable
 
         Log.App($"Tor stopped unexpectedly (exit code {exitCode})");
 
-        if (Settings.KillSwitch && _singBox is { IsRunning: true })
-        {
-            // The tunnel stays up on purpose. Its routes still own the default route, so traffic
-            // fails instead of quietly falling back to the unprotected connection.
-            SetState(VpnState.Interrupted, "Tor stopped. Traffic is blocked by the kill switch.");
-            return;
-        }
-
         _ = Task.Run(async () =>
         {
-            await TearDownAsync().ConfigureAwait(false);
-            SetState(VpnState.Failed, $"Tor stopped unexpectedly (exit code {exitCode}).");
+            var keepBlocking = _killSwitch.IsArmed;
+            await TearDownAsync(disarmKillSwitch: !keepBlocking).ConfigureAwait(false);
+
+            if (keepBlocking)
+            {
+                SetState(VpnState.Interrupted, null);
+                ScheduleReconnect();
+            }
+            else
+            {
+                SetState(VpnState.Failed, $"Tor stopped unexpectedly (exit code {exitCode}).");
+            }
         });
     }
 
@@ -449,12 +538,20 @@ public sealed class VpnService : IAsyncDisposable
 
         Log.App($"The tunnel stopped unexpectedly (exit code {exitCode})");
 
-        // Without sing-box there is no tunnel and no way to hold traffic back, so the session is
-        // shut down completely rather than left in a state that looks protected but is not.
         _ = Task.Run(async () =>
         {
-            await TearDownAsync().ConfigureAwait(false);
-            SetState(VpnState.Failed, $"The tunnel stopped unexpectedly (exit code {exitCode}).");
+            var keepBlocking = _killSwitch.IsArmed;
+            await TearDownAsync(disarmKillSwitch: !keepBlocking).ConfigureAwait(false);
+
+            if (keepBlocking)
+            {
+                SetState(VpnState.Interrupted, null);
+                ScheduleReconnect();
+            }
+            else
+            {
+                SetState(VpnState.Failed, $"The tunnel stopped unexpectedly (exit code {exitCode}).");
+            }
         });
     }
 
@@ -465,13 +562,22 @@ public sealed class VpnService : IAsyncDisposable
     /// a child process exiting at the same time, and two teardowns racing each other used to trip
     /// over the half-disposed control connection.
     /// </summary>
-    private async Task TearDownAsync()
+    private async Task TearDownAsync(bool disarmKillSwitch)
     {
         await _teardownGate.WaitAsync().ConfigureAwait(false);
 
         try
         {
+            // Revoked first: the moment the tunnel is going away, nothing should be allowed out
+            // through it any more.
+            _killSwitch.CloseTunnel();
+
             await TearDownCoreAsync().ConfigureAwait(false);
+
+            if (disarmKillSwitch)
+            {
+                _killSwitch.Disarm();
+            }
         }
         finally
         {
@@ -562,7 +668,8 @@ public sealed class VpnService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await TearDownAsync().ConfigureAwait(false);
+        await TearDownAsync(disarmKillSwitch: true).ConfigureAwait(false);
+        _killSwitch.Dispose();
         _job.Dispose();
         _transitionGate.Dispose();
         _teardownGate.Dispose();
