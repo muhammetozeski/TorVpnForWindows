@@ -40,10 +40,15 @@ public static class ConflictDetector
     /// <summary>
     /// Returns the other VPN clients currently running. Presence alone is not a fault, so this is
     /// only used to explain a tunnel that came up but cannot pass traffic.
+    ///
+    /// A client whose own adapter is up is reported first: it is the one most likely to be
+    /// filtering right now. The others still matter, because a kill switch is usually designed to
+    /// keep blocking after its tunnel goes down, which is exactly when it is least expected.
     /// </summary>
     public static IReadOnlyList<ConflictReport> FindRunningVpnClients()
     {
         var found = new List<ConflictReport>();
+        var activeAdapters = ActiveAdapterNames();
 
         foreach (var client in KnownClients)
         {
@@ -56,14 +61,17 @@ public static class ConflictDetector
                     process.Dispose();
                 }
 
-                if (processes.Length > 0 && found.All(r => r.Product != client.Product))
+                if (processes.Length == 0 || found.Any(r => r.Product == client.Product))
                 {
-                    found.Add(new ConflictReport(
-                        client.Product,
-                        $"{client.Product} is running. If it has a kill switch enabled, it blocks traffic on every " +
-                        "adapter except its own, including this tunnel. Turn its kill switch off, or disconnect it, " +
-                        "and connect again."));
+                    continue;
                 }
+
+                var adapterUp = activeAdapters.Any(name =>
+                    name.Contains(client.Product.Replace(" ", string.Empty), StringComparison.OrdinalIgnoreCase));
+
+                found.Add(new ConflictReport(
+                    client.Product,
+                    adapterUp ? $"{client.Product} (connected)" : client.Product));
             }
             catch (Exception ex)
             {
@@ -71,7 +79,26 @@ public static class ConflictDetector
             }
         }
 
-        return found;
+        // Connected first: that is the one to try turning off.
+        return found
+            .OrderByDescending(r => r.Explanation.EndsWith("(connected)", StringComparison.Ordinal))
+            .ToList();
+    }
+
+    private static IReadOnlyList<string> ActiveAdapterNames()
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(nic => nic.OperationalStatus == OperationalStatus.Up)
+                .Select(nic => nic.Name + " " + nic.Description)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not list active adapters", ex);
+            return [];
+        }
     }
 
     /// <summary>Tunnel adapters other than this application's, for the diagnostic message.</summary>
@@ -116,31 +143,27 @@ public static class ConflictDetector
 
     /// <summary>
     /// Builds the message shown when the tunnel is up but the first request through it failed.
+    /// Kept to one sentence plus the list, because it goes on the status screen under the state.
     /// </summary>
     public static string? DescribeLikelyCause(string ownAdapterName)
     {
         var clients = FindRunningVpnClients();
+
+        if (clients.Count > 0)
+        {
+            var names = string.Join(", ", clients.Select(c => c.Explanation));
+            return $"Traffic is being blocked before it leaves the machine, most likely by a kill switch in {names}. " +
+                   "Turn that off, or disconnect it, and connect again.";
+        }
+
         var adapters = FindOtherTunnelAdapters(ownAdapterName);
 
-        if (clients.Count == 0 && adapters.Count == 0)
+        if (adapters.Count > 0)
         {
-            return null;
+            return $"Traffic is being blocked before it leaves the machine. Another tunnel is active " +
+                   $"({string.Join(", ", adapters)}); if its client has a kill switch, turn that off and connect again.";
         }
 
-        var parts = new List<string>();
-
-        foreach (var client in clients)
-        {
-            parts.Add(client.Explanation);
-        }
-
-        if (clients.Count == 0 && adapters.Count > 0)
-        {
-            parts.Add(
-                $"Another tunnel adapter is active ({string.Join(", ", adapters)}). If its client has a kill switch, " +
-                "it blocks traffic on every adapter except its own, including this one.");
-        }
-
-        return string.Join(" ", parts);
+        return null;
     }
 }

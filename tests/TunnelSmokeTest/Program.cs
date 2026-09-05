@@ -217,7 +217,7 @@ internal static class Program
         // Wintun removes the adapter as the process that created it goes away, but the change takes
         // a moment to reach the interface list, so give it a few tries before calling it a failure.
         var adapterGone = false;
-        for (var attempt = 0; attempt < 10 && !adapterGone; attempt++)
+        for (var attempt = 0; attempt < 30 && !adapterGone; attempt++)
         {
             adapterGone = FindAdapter(settings.TunInterfaceName) is null;
             if (!adapterGone)
@@ -227,7 +227,7 @@ internal static class Program
         }
 
         Check("the TUN adapter is gone", adapterGone,
-            $"the adapter named {settings.TunInterfaceName} is still present after 10 s");
+            $"the adapter named {settings.TunInterfaceName} is still present after 30 s");
 
         Check("no tor.exe or sing-box.exe is left running", NoChildrenLeft(), "a child process survived");
 
