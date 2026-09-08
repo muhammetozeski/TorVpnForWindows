@@ -19,7 +19,7 @@ public sealed record LogEntry(DateTime Timestamp, LogSource Source, string Messa
 /// Single log sink for the application and both child processes. Keeps a bounded in-memory ring
 /// for the UI and appends everything to a rolling file on disk.
 /// </summary>
-public static class Log
+public static partial class Log
 {
     private const int MaxInMemory = 2000;
     private const long MaxFileBytes = 4 * 1024 * 1024;
@@ -27,6 +27,9 @@ public static class Log
     private static readonly ConcurrentQueue<LogEntry> Buffer = new();
     private static readonly Lock FileGate = new();
     private static bool _fileReady;
+
+    private const int WritesBetweenSizeChecks = 500;
+    private static int _writesSinceSizeCheck;
 
     public static event Action<LogEntry>? Entry;
 
@@ -48,7 +51,19 @@ public static class Log
             return;
         }
 
-        var entry = new LogEntry(DateTime.Now, source, message.TrimEnd());
+        var text = message.TrimEnd();
+
+        if (ShouldSuppressAsRepeat(source, text, out var summary))
+        {
+            if (summary is null)
+            {
+                return;
+            }
+
+            text = summary;
+        }
+
+        var entry = new LogEntry(DateTime.Now, source, text);
 
         Buffer.Enqueue(entry);
         while (Buffer.Count > MaxInMemory && Buffer.TryDequeue(out _))
@@ -67,6 +82,115 @@ public static class Log
         }
     }
 
+    // Collapses a message that keeps repeating.
+    //
+    // A network that goes away while the tunnel is up makes sing-box report an unreachable route for
+    // every connection Tor attempts. One such night produced 323,692 identical lines and a 347 MB
+    // file, which buried the handful of lines that actually said what happened.
+    //
+    // The first ten are written as they arrive. After that the message becomes a single running line
+    // carrying the count and the span it covers, rewritten as the count grows, so the information is
+    // all still there and takes one line instead of hundreds of thousands.
+    private const int RepeatsBeforeCollapsing = 10;
+    private static readonly TimeSpan RepeatSummaryInterval = TimeSpan.FromSeconds(5);
+
+    private static string? _lastKey;
+    private static string? _lastText;
+    private static LogSource _lastSource;
+    private static int _repeatCount;
+    private static DateTime _repeatFirstAt;
+    private static DateTime _repeatLastAt;
+    private static DateTime _lastSummaryAt = DateTime.MinValue;
+    private static readonly Lock RepeatGate = new();
+
+    private static string RepeatSummary(string text, int count, DateTime from, DateTime to) =>
+        $"{text}   [bu log {from:yyyy.MM.dd HH.mm.ss} tarihinden {to:yyyy.MM.dd HH.mm.ss} tarihine kadar {count} adet atildi]";
+
+    private static bool ShouldSuppressAsRepeat(LogSource source, string text, out string? summary)
+    {
+        summary = null;
+        var now = DateTime.Now;
+
+        // Child process lines carry a timestamp and a connection id, so compare what is left after
+        // the numbers are stripped; otherwise every repeat looks unique.
+        var key = source + "|" + DigitRun().Replace(text, "#");
+
+        lock (RepeatGate)
+        {
+            if (key != _lastKey)
+            {
+                FlushPendingRepeat();
+
+                _lastKey = key;
+                _lastText = text;
+                _lastSource = source;
+                _repeatCount = 1;
+                _repeatFirstAt = now;
+                _repeatLastAt = now;
+                _lastSummaryAt = DateTime.MinValue;
+                return false;
+            }
+
+            _repeatCount++;
+            _repeatLastAt = now;
+
+            if (_repeatCount <= RepeatsBeforeCollapsing)
+            {
+                return false;
+            }
+
+            // Rewriting the running total on every single repeat would put the flood back, so it is
+            // refreshed on an interval. The final count is written when the burst ends.
+            if (now - _lastSummaryAt < RepeatSummaryInterval)
+            {
+                return true;
+            }
+
+            _lastSummaryAt = now;
+            summary = RepeatSummary(text, _repeatCount, _repeatFirstAt, _repeatLastAt);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Writes the closing count for a burst that has just ended. Call inside <see cref="RepeatGate"/>.
+    /// </summary>
+    private static void FlushPendingRepeat()
+    {
+        if (_repeatCount <= RepeatsBeforeCollapsing || _lastText is null)
+        {
+            return;
+        }
+
+        AppendToFile(new LogEntry(
+            _repeatLastAt,
+            _lastSource,
+            RepeatSummary(_lastText, _repeatCount, _repeatFirstAt, _repeatLastAt)));
+
+        _repeatCount = 0;
+        _lastText = null;
+    }
+
+    /// <summary>Writes any outstanding repeat count, so a burst still running at exit is recorded.</summary>
+    public static void Flush()
+    {
+        try
+        {
+            lock (RepeatGate)
+            {
+                FlushPendingRepeat();
+                _lastKey = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Flushing the log failed: {ex.Message}");
+        }
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\d+")]
+    private static partial System.Text.RegularExpressions.Regex DigitRun();
+
     private static void AppendToFile(LogEntry entry)
     {
         try
@@ -78,6 +202,14 @@ public static class Log
                     Directory.CreateDirectory(AppPaths.LogDir);
                     RollIfTooLarge();
                     _fileReady = true;
+                }
+
+                // Checked while running, not only at startup. Rolling once on open meant a long
+                // session wrote into a single file until it stopped, however large it became.
+                if (++_writesSinceSizeCheck >= WritesBetweenSizeChecks)
+                {
+                    _writesSinceSizeCheck = 0;
+                    RollIfTooLarge();
                 }
 
                 File.AppendAllText(

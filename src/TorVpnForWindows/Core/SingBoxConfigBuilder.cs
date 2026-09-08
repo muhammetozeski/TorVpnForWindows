@@ -71,9 +71,11 @@ public static class SingBoxConfigBuilder
 
         var root = new JsonObject
         {
+            // warn, not info. At info sing-box prints three lines per connection, which on a busy
+            // machine is thousands a minute and drowns out the lines that say what went wrong.
             ["log"] = new JsonObject
             {
-                ["level"] = "info",
+                ["level"] = "warn",
                 ["timestamp"] = false
             },
             ["dns"] = BuildDns(endpoints, infrastructure, excludedProcesses, upstreamDnsServers),

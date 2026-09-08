@@ -119,6 +119,7 @@ public partial class App : Application
         }
 
         Log.App("Tor VPN for Windows stopped");
+        Log.Flush();
         base.OnExit(e);
     }
 
