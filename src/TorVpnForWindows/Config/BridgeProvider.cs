@@ -44,14 +44,22 @@ public static class BridgeProvider
     };
 
     /// <summary>
-    /// Resolves the bridge lines for the configured mode. Never throws: a failure to reach the Tor
-    /// Project falls back to the cache and then to the compiled-in list.
+    /// Resolves the bridge lines for the configured mode, without touching the network.
+    ///
+    /// This runs before Tor exists, so it must not make a connection of any kind. Asking
+    /// bridges.torproject.org for the list at this point would put that name into a plaintext DNS
+    /// query and into the SNI field of a TLS handshake, telling anyone watching the network that
+    /// Tor is about to be used. Hiding exactly that is the only reason to be using a bridge.
+    ///
+    /// The list is instead refreshed by <see cref="RefreshThroughTorAsync"/> once a connection
+    /// exists, and read from the cache here on the next run. A first run with no cache uses the
+    /// compiled-in list, which is what it is for.
     /// </summary>
-    public static async Task<BridgeSet> ResolveAsync(AppSettings settings, CancellationToken cancellationToken)
+    public static Task<BridgeSet> ResolveAsync(AppSettings settings, CancellationToken cancellationToken)
     {
         if (settings.BridgeMode == BridgeMode.None)
         {
-            return new BridgeSet([], BridgeOrigin.User, null);
+            return Task.FromResult(new BridgeSet([], BridgeOrigin.User, null));
         }
 
         if (settings.BridgeMode == BridgeMode.Custom)
@@ -61,57 +69,77 @@ public static class BridgeProvider
                 .Where(line => line.Length > 0 && !line.StartsWith('#'))
                 .ToList();
 
-            return new BridgeSet(lines, BridgeOrigin.User, null);
+            return Task.FromResult(new BridgeSet(lines, BridgeOrigin.User, null));
         }
 
         var cache = ReadCache();
 
-        if (cache is not null && DateTimeOffset.UtcNow - cache.FetchedAt < CacheLifetime)
+        if (cache is not null)
         {
             var cached = Select(cache, settings.BridgeMode);
             if (cached.Count > 0)
             {
-                Log.App($"Using cached built-in bridges from {cache.FetchedAt:yyyy-MM-dd HH:mm} UTC");
-                return new BridgeSet(cached, BridgeOrigin.Cached, cache.FetchedAt);
+                var age = DateTimeOffset.UtcNow - cache.FetchedAt;
+                Log.App(
+                    $"Using cached built-in bridges from {cache.FetchedAt:yyyy-MM-dd HH:mm} UTC " +
+                    $"({age.TotalDays:0.#} day(s) old)");
+
+                return Task.FromResult(new BridgeSet(cached, BridgeOrigin.Cached, cache.FetchedAt));
             }
         }
 
-        var fetched = await FetchAsync(cancellationToken).ConfigureAwait(false);
-        if (fetched is not null)
-        {
-            WriteCache(fetched);
-
-            var live = Select(fetched, settings.BridgeMode);
-            if (live.Count > 0)
-            {
-                Log.App($"Fetched {live.Count} built-in {settings.BridgeMode} bridge(s) from the Tor Project");
-                return new BridgeSet(live, BridgeOrigin.Live, fetched.FetchedAt);
-            }
-
-            Log.App($"The Tor Project returned no {settings.BridgeMode} bridges");
-        }
-
-        // The endpoint was unreachable. An expired cache is still far better than a list frozen at
-        // build time, so try it before falling back to the compiled-in copy.
-        if (cache is not null)
-        {
-            var stale = Select(cache, settings.BridgeMode);
-            if (stale.Count > 0)
-            {
-                Log.App($"Could not reach the Tor Project; using the cached list from {cache.FetchedAt:yyyy-MM-dd HH:mm} UTC");
-                return new BridgeSet(stale, BridgeOrigin.Cached, cache.FetchedAt);
-            }
-        }
-
-        Log.App("Could not reach the Tor Project and no cache is available; using the built-in list");
-        return new BridgeSet(BuiltInBridges.For(settings.BridgeMode).ToList(), BridgeOrigin.Embedded, null);
+        Log.App("No cached bridge list yet; using the built-in one until a connection can refresh it");
+        return Task.FromResult(new BridgeSet(BuiltInBridges.For(settings.BridgeMode).ToList(), BridgeOrigin.Embedded, null));
     }
 
-    private static async Task<BridgeCache?> FetchAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Refreshes the cached bridge list over an existing Tor connection.
+    ///
+    /// Called after the tunnel is up and routed through Tor's SOCKS port, so the request to the Tor
+    /// Project is inside Tor: the network sees a connection to whatever the bridge is disguised as,
+    /// and nothing more. The result is only used by the next run, which is the trade for never
+    /// naming the Tor Project on an unprotected connection.
+    /// </summary>
+    public static async Task RefreshThroughTorAsync(
+        AppSettings settings,
+        int socksPort,
+        CancellationToken cancellationToken)
+    {
+        if (settings.BridgeMode is BridgeMode.None or BridgeMode.Custom)
+        {
+            return;
+        }
+
+        var cache = ReadCache();
+        if (cache is not null && DateTimeOffset.UtcNow - cache.FetchedAt < CacheLifetime)
+        {
+            return;
+        }
+
+        var fetched = await FetchThroughTorAsync(socksPort, cancellationToken).ConfigureAwait(false);
+        if (fetched is null)
+        {
+            return;
+        }
+
+        WriteCache(fetched);
+
+        var total = fetched.Transports.Sum(t => t.Value.Count);
+        Log.App($"Refreshed the bridge list through Tor: {total} line(s) across {fetched.Transports.Count} transport(s)");
+    }
+
+    private static async Task<BridgeCache?> FetchThroughTorAsync(int socksPort, CancellationToken cancellationToken)
     {
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            using var handler = new HttpClientHandler
+            {
+                Proxy = new System.Net.WebProxy($"socks5://127.0.0.1:{socksPort}"),
+                UseProxy = true,
+                UseCookies = false
+            };
+
+            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("TorVpnForWindows/1.0");
 
             var json = await http.GetStringAsync(BuiltinUrl, cancellationToken).ConfigureAwait(false);
@@ -146,7 +174,7 @@ public static class BridgeProvider
         }
         catch (Exception ex)
         {
-            Log.App($"Fetching the built-in bridge list failed: {ex.GetType().Name}: {ex.Message}");
+            Log.App($"Refreshing the bridge list through Tor failed: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
     }

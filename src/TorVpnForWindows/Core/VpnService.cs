@@ -100,6 +100,45 @@ public sealed class VpnService : IAsyncDisposable
     public bool CanDisconnect => State is VpnState.Connected or VpnState.Interrupted
         or VpnState.Bootstrapping or VpnState.EstablishingTunnel or VpnState.Preparing;
 
+    /// <summary>
+    /// Blocks traffic straight away, before anything is connected, and leaves it blocked.
+    ///
+    /// Called at startup so the intended sequence works: open the application with the network
+    /// down, bring the network up, and nothing reaches it until Tor is carrying the traffic.
+    /// Arming only when connect is pressed left that whole window open, and a machine that joins a
+    /// network before the user presses anything went out in the clear.
+    /// </summary>
+    public bool ArmStandbyBlock()
+    {
+        if (!Settings.KillSwitch)
+        {
+            return false;
+        }
+
+        try
+        {
+            PayloadExtractor.EnsureExtracted();
+
+            var binaries = Binaries.Resolve();
+            var excluded = ExclusionList.Read();
+
+            if (!_killSwitch.Arm(KillSwitchGuard.BuildPermitList(binaries, excluded)))
+            {
+                Log.App("The kill switch could not be armed at startup; traffic is not being blocked");
+                return false;
+            }
+
+            Log.App("Traffic is blocked until Tor is connected");
+            RaiseStatus();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Arming the kill switch at startup failed", ex);
+            return false;
+        }
+    }
+
     public async Task ConnectAsync()
     {
         await _transitionGate.WaitAsync().ConfigureAwait(false);
@@ -195,6 +234,11 @@ public sealed class VpnService : IAsyncDisposable
             StartStatsLoop(token);
             StartHealthLoop(token);
             _ = VerifyTunnelAsync(endpoints, token);
+
+            // Now that there is a connection, the bridge list can be refreshed from inside it. It
+            // is never fetched before this point, because doing so would name the Tor Project on an
+            // unprotected connection, which is what a bridge exists to avoid.
+            _ = BridgeProvider.RefreshThroughTorAsync(Settings, endpoints.SocksPort, token);
         }
         catch (OperationCanceledException)
         {
