@@ -347,7 +347,10 @@ public partial class MainWindow : Window
             VpnState.Connected => status.Message ?? Strings.HintConnected,
             VpnState.Interrupted => Strings.HintInterrupted,
             VpnState.Failed => status.Message ?? Strings.HintDisconnected,
-            _ => Strings.HintDisconnected
+
+            // Saying "your traffic is going out normally" while the block is on would be the
+            // opposite of what is happening.
+            _ => _vpn.TrafficBlocked ? Strings.HintBlockedUntilConnected : Strings.HintDisconnected
         };
 
         var connectedButBlocked = status.State == VpnState.Connected && status.Message is not null;

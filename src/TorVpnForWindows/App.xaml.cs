@@ -54,6 +54,11 @@ public partial class App : Application
 
         _vpn = new VpnService(settings);
 
+        // Before the window is even shown. The point of the kill switch is that there is no moment
+        // between the application starting and Tor carrying the traffic during which something can
+        // reach the network.
+        _vpn.ArmStandbyBlock();
+
         var window = new MainWindow(settings, _vpn);
         MainWindow = window;
         window.Show();

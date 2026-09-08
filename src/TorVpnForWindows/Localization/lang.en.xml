@@ -25,6 +25,7 @@
   <s name="StateFailed">Failed</s>
 
   <s name="HintDisconnected">Your traffic is going out normally.</s>
+  <s name="HintBlockedUntilConnected">The internet is blocked. Nothing can reach it until Tor is connected.</s>
   <s name="HintConnected">Every connection on this machine goes through Tor.</s>
   <s name="HintInterrupted">Tor stopped. The kill switch is holding traffic back.</s>
 

@@ -38,6 +38,8 @@ internal static class Strings
     public static string StateFailed = "Başarısız";
 
     public static string HintDisconnected = "Trafiğiniz normal şekilde çıkıyor.";
+    public static string HintBlockedUntilConnected =
+        "İnternet engellendi. Tor bağlanana kadar hiçbir program dışarı çıkamaz.";
     public static string HintConnected = "Bu bilgisayardaki her bağlantı Tor üzerinden geçiyor.";
     public static string HintInterrupted = "Tor durdu. Kill switch trafiği tutuyor.";
 
