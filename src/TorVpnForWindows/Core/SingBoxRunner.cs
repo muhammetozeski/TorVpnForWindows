@@ -130,30 +130,30 @@ public sealed class SingBoxRunner : IAsyncDisposable
 
         Log.App($"sing-box.exe started, PID {_process.Id}");
 
-        await WaitUntilServingAsync(cancellationToken).ConfigureAwait(false);
+        await WaitUntilServingAsync(settings.TunInterfaceName, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Waits for sing-box to report that it finished starting. If it fails instead, for example
-    /// because the adapter could not be created, this surfaces that as an exception rather than
-    /// letting the caller believe the tunnel is up.
+    /// Waits until the tunnel adapter is actually up, or until sing-box gives up.
+    ///
+    /// The adapter is the thing being waited for, so the adapter is what is checked. This used to
+    /// watch for the line "sing-box started" on standard output, which broke silently the moment the
+    /// log level was lowered to warn: that line is written at info, so it never arrived, and every
+    /// single connection failed on a thirty second timeout with nothing in the log to explain it.
+    /// A readiness check that depends on the verbosity setting is not a readiness check.
+    ///
+    /// The log line is still honoured when it happens to appear, because it arrives a moment before
+    /// the adapter finishes coming up.
     /// </summary>
-    private async Task WaitUntilServingAsync(CancellationToken cancellationToken)
+    private async Task WaitUntilServingAsync(string adapterName, CancellationToken cancellationToken)
     {
         var started = _started ?? throw new InvalidOperationException("The process was not started.");
+        var deadline = DateTime.UtcNow.AddSeconds(30);
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(30));
-
-        using var registration = timeout.Token.Register(static state =>
-            ((TaskCompletionSource)state!).TrySetCanceled(), started);
-
-        try
+        while (DateTime.UtcNow < deadline)
         {
-            await started.Task.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (_process is { HasExited: true })
             {
                 throw new InvalidOperationException(
@@ -161,8 +161,19 @@ public sealed class SingBoxRunner : IAsyncDisposable
                     "The log pane holds the reason it reported.");
             }
 
-            throw new TimeoutException("sing-box did not finish creating the tunnel within 30 seconds.");
+            if (started.Task.IsCompletedSuccessfully || NetworkProbe.AdapterExists(adapterName))
+            {
+                // The adapter can report up a fraction before its addresses are usable.
+                await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+                Log.App($"The tunnel adapter {adapterName} is up");
+                return;
+            }
+
+            await Task.Delay(250, cancellationToken).ConfigureAwait(false);
         }
+
+        throw new TimeoutException(
+            $"The tunnel adapter {adapterName} did not come up within 30 seconds.");
     }
 
     /// <summary>

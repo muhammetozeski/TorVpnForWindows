@@ -193,13 +193,22 @@ public static class NetworkProbe
         return null;
     }
 
+    /// <summary>
+    /// Whether an adapter with this name is present and running.
+    ///
+    /// Operational status is part of the question on purpose. Wintun leaves the device node behind
+    /// after the process that created it exits, so the name stays visible in a Down state
+    /// indefinitely. Treating that as a live tunnel made every session wait the full timeout for
+    /// something that was never going to disappear.
+    /// </summary>
     public static bool AdapterExists(string name)
     {
         try
         {
             return NetworkInterface.GetAllNetworkInterfaces().Any(nic =>
-                nic.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-                nic.Description.Contains(name, StringComparison.OrdinalIgnoreCase));
+                nic.OperationalStatus == OperationalStatus.Up &&
+                (nic.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+                 nic.Description.Contains(name, StringComparison.OrdinalIgnoreCase)));
         }
         catch (Exception ex)
         {

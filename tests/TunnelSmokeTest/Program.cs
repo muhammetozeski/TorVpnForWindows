@@ -555,14 +555,22 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// Finds the tunnel adapter, counting only one that is running.
+    ///
+    /// Wintun leaves the device node behind after the process that created it exits, so the name
+    /// stays visible in a Down state indefinitely. Matching on the name alone reported the adapter
+    /// as still present after every clean shutdown.
+    /// </summary>
     private static NetworkInterface? FindAdapter(string name)
     {
         try
         {
             return NetworkInterface.GetAllNetworkInterfaces()
                 .FirstOrDefault(nic =>
-                    nic.Name.Contains(name, StringComparison.OrdinalIgnoreCase) ||
-                    nic.Description.Contains(name, StringComparison.OrdinalIgnoreCase));
+                    nic.OperationalStatus == OperationalStatus.Up &&
+                    (nic.Name.Contains(name, StringComparison.OrdinalIgnoreCase) ||
+                     nic.Description.Contains(name, StringComparison.OrdinalIgnoreCase)));
         }
         catch (Exception ex)
         {
