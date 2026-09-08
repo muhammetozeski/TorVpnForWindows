@@ -90,6 +90,7 @@ public partial class MainWindow : Window
         TabLog.Header = Strings.TabLog;
 
         NewIdentityButton.Content = Strings.ButtonNewIdentity;
+        RetryButton.Content = Strings.ButtonRetry;
         UdpNotice.Text = Strings.StatusUdpNotice;
 
         ExitAddressLabel.Text = Strings.StatusExitAddress;
@@ -479,6 +480,27 @@ public partial class MainWindow : Window
         {
             Log.Error("Connect threw", ex);
             MessageBox.Show(this, ex.Message, Strings.ErrorTitle, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void OnRetryClick(object sender, RoutedEventArgs e)
+    {
+        RetryButton.IsEnabled = false;
+
+        try
+        {
+            await _vpn.RetryAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Retry threw", ex);
+            MessageBox.Show(this, ex.Message, Strings.ErrorTitle, MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            // Re-enabled unconditionally: this button exists for the case where everything else is
+            // stuck, so it must never be the thing that is stuck.
+            RetryButton.IsEnabled = true;
         }
     }
 

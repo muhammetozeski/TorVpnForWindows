@@ -204,9 +204,15 @@
                         <TextBlock x:Name="UdpNotice" Style="{StaticResource Muted}"
                                    FontSize="11" TextAlignment="Center" Margin="0,0,0,10"
                                    Visibility="Collapsed" />
-                        <Button x:Name="NewIdentityButton" Content="New circuit"
-                                HorizontalAlignment="Center" IsEnabled="False"
-                                Click="OnNewIdentityClick" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <!-- Always here and always enabled. A connect that is going nowhere is
+                                 exactly when this is wanted, so it must not be disabled by state. -->
+                            <Button x:Name="RetryButton" Content="Try again"
+                                    Click="OnRetryClick" />
+                            <Button x:Name="NewIdentityButton" Content="New circuit"
+                                    Margin="8,0,0,0" IsEnabled="False"
+                                    Click="OnNewIdentityClick" />
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
                 </ScrollViewer>
