@@ -193,6 +193,7 @@ public sealed class VpnService : IAsyncDisposable
             SetState(VpnState.Connected, null);
 
             StartStatsLoop(token);
+            StartHealthLoop(token);
             _ = VerifyTunnelAsync(endpoints, token);
         }
         catch (OperationCanceledException)
@@ -225,6 +226,149 @@ public sealed class VpnService : IAsyncDisposable
             _transitionGate.Release();
         }
     }
+
+    /// <summary>
+    /// Stops everything immediately, whatever state the session is in, without letting traffic out.
+    ///
+    /// The order matters. The session token is cancelled and the child processes are killed before
+    /// the transition gate is taken, so an in-flight connect throws and unwinds instead of holding
+    /// the gate while this waits for it. The block stays armed throughout: an abort is a failure to
+    /// protect the machine, not a decision to stop protecting it.
+    /// </summary>
+    public async Task AbortAsync(string reason)
+    {
+        Log.App($"Aborting: {reason}");
+
+        try
+        {
+            if (_sessionCts is not null)
+            {
+                await _sessionCts.CancelAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Cancelling the session during abort failed", ex);
+        }
+
+        // Kill first, ask questions later. Anything waiting on these processes now fails fast.
+        try
+        {
+            _singBox?.RequestImmediateStop();
+            _tor?.RequestImmediateStop();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Killing the child processes during abort failed", ex);
+        }
+
+        await _transitionGate.WaitAsync().ConfigureAwait(false);
+
+        try
+        {
+            SetState(VpnState.Disconnecting, reason);
+
+            // The block is kept if it was on, so nothing escapes between this and the next attempt.
+            var keepBlocking = _killSwitch.IsArmed;
+            await TearDownAsync(disarmKillSwitch: !keepBlocking).ConfigureAwait(false);
+
+            SetState(keepBlocking ? VpnState.Interrupted : VpnState.Failed, reason);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Abort failed", ex);
+            SetState(VpnState.Failed, ex.Message);
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Stops whatever is happening and starts over. Available in every state, including while a
+    /// connect is still running, because a connect that is going nowhere is exactly when it is
+    /// wanted.
+    /// </summary>
+    public async Task RetryAsync()
+    {
+        await AbortAsync("Restarting the connection.").ConfigureAwait(false);
+        await ConnectAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Watches a live session and ends it the moment it stops carrying traffic.
+    ///
+    /// Without this the application reported Connected for as long as it was left alone. On one run
+    /// the underlying network went away four minutes after connecting; Tor could no longer reach a
+    /// single relay, and the session sat there showing green for four hours and forty minutes while
+    /// nothing worked. Tor knows whether it has a usable circuit, so it is asked.
+    /// </summary>
+    private void StartHealthLoop(CancellationToken cancellationToken)
+    {
+        _healthTask = Task.Run(async () =>
+        {
+            var consecutiveFailures = 0;
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+
+                    if (State != VpnState.Connected)
+                    {
+                        continue;
+                    }
+
+                    var control = _tor?.Control;
+
+                    var healthy = control is { IsConnected: true } &&
+                                  await control.GetInfoAsync("status/circuit-established", cancellationToken)
+                                      .ConfigureAwait(false) == "1";
+
+                    if (healthy)
+                    {
+                        if (consecutiveFailures > 0)
+                        {
+                            Log.App("Tor has a usable circuit again");
+                        }
+
+                        consecutiveFailures = 0;
+                        continue;
+                    }
+
+                    consecutiveFailures++;
+                    Log.App($"Tor reports no usable circuit ({consecutiveFailures} check(s) in a row)");
+
+                    if (consecutiveFailures < HealthFailuresBeforeGivingUp)
+                    {
+                        continue;
+                    }
+
+                    await AbortAsync(
+                        "The connection stopped carrying traffic. Traffic is blocked while it is retried.")
+                        .ConfigureAwait(false);
+
+                    ScheduleReconnect();
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("The health check failed", ex);
+                }
+            }
+        }, CancellationToken.None);
+    }
+
+    /// <summary>Three checks fifteen seconds apart, so a brief hiccup is not treated as a failure.</summary>
+    private const int HealthFailuresBeforeGivingUp = 3;
+
+    private Task? _healthTask;
 
     /// <summary>
     /// Retries in the background while the kill switch is holding traffic. This is what gets the
@@ -675,6 +819,10 @@ public sealed class VpnService : IAsyncDisposable
 
             _statsTask = null;
         }
+
+        // Not awaited: the health loop is what calls AbortAsync, which reaches here, so waiting for
+        // it to finish would be waiting for this method to return.
+        _healthTask = null;
 
         _sessionCts?.Dispose();
         _sessionCts = null;

@@ -166,6 +166,36 @@ public sealed class SingBoxRunner : IAsyncDisposable
     }
 
     /// <summary>
+    /// Kills the tunnel now.
+    ///
+    /// Taking the adapter down is what stops traffic reaching it, so this runs before the kill
+    /// switch is touched: at no point is there a working route without a working tunnel.
+    /// </summary>
+    public void RequestImmediateStop()
+    {
+        _stopRequested = true;
+
+        var process = _process;
+        if (process is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!process.HasExited)
+            {
+                Log.App("Killing sing-box.exe immediately");
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Killing sing-box.exe immediately failed", ex);
+        }
+    }
+
+    /// <summary>
     /// Stops the tunnel. Safe to call more than once and from more than one thread: the first
     /// caller takes the process handle, so a later call has nothing left to dispose twice.
     /// </summary>

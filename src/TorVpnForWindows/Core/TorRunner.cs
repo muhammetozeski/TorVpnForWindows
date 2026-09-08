@@ -206,6 +206,37 @@ public sealed partial class TorRunner : IAsyncDisposable
     }
 
     /// <summary>
+    /// Kills Tor now, without the clean shutdown handshake.
+    ///
+    /// Used when a session is being abandoned rather than ended: waiting several seconds for a
+    /// process that is already failing only delays the retry, and anything still awaiting it fails
+    /// immediately instead of hanging on.
+    /// </summary>
+    public void RequestImmediateStop()
+    {
+        _stopRequested = true;
+
+        var process = _process;
+        if (process is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!process.HasExited)
+            {
+                Log.App("Killing tor.exe immediately");
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Killing tor.exe immediately failed", ex);
+        }
+    }
+
+    /// <summary>
     /// Stops Tor. Safe to call more than once and from more than one thread: the fields are taken
     /// over by the first caller, so a second one finds nothing left to do rather than tripping over
     /// a half-disposed connection.
