@@ -517,28 +517,15 @@ public sealed class KillSwitchGuard : IDisposable
     /// </summary>
     public static List<string> BuildPermitList(Binaries binaries, IReadOnlyList<string> excludedProcessNames)
     {
+        // This application is deliberately not here.
+        //
+        // It used to be, from when it fetched the bridge list from the Tor Project before Tor
+        // existed. That fetch now happens through Tor, and everything else it does is either
+        // loopback, which the loopback rule already covers, or goes over the tunnel adapter, which
+        // the tunnel rule covers once it is up. Leaving the permit in place would keep open a hole
+        // through which the application could reach the network directly, and a hole that nothing
+        // uses is a hole waiting for the next feature to walk through it.
         var list = new List<string> { binaries.Tor.Path, binaries.Lyrebird.Path, binaries.SingBox.Path };
-
-        var self = Environment.ProcessPath;
-        if (self is not null)
-        {
-            list.Add(self);
-        }
-
-        try
-        {
-            // The framework dependent build runs through the apphost, but a debugger or a test host
-            // runs it through dotnet, so permit that as well when it is what is hosting us.
-            var host = Process.GetCurrentProcess().MainModule?.FileName;
-            if (host is not null)
-            {
-                list.Add(host);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Could not determine the host process image", ex);
-        }
 
         list.AddRange(ResolveExecutablePaths(excludedProcessNames));
 
