@@ -365,6 +365,28 @@ public sealed class VpnService : IAsyncDisposable
                         continue;
                     }
 
+                    // Asking Tor is not enough on its own. When the machine loses its address the
+                    // adapter stays up, Tor keeps reporting an established circuit from the ones it
+                    // already had, and the session sits there green while nothing reaches the
+                    // network. sing-box notices immediately, because every connection it tries to
+                    // open has nowhere to go, so its complaint is counted and treated as the failure
+                    // it is.
+                    var routeFailures = _singBox?.TakeRouteFailures() ?? 0;
+
+                    if (routeFailures >= RouteFailuresBeforeGivingUp)
+                    {
+                        Log.App(
+                            $"The tunnel has no way out to the network ({routeFailures} failed connection(s) " +
+                            "in the last fifteen seconds)");
+
+                        await AbortAsync(
+                            "The connection stopped carrying traffic. Traffic is blocked while it is retried.")
+                            .ConfigureAwait(false);
+
+                        ScheduleReconnect();
+                        return;
+                    }
+
                     var control = _tor?.Control;
 
                     var healthy = control is { IsConnected: true } &&
@@ -411,6 +433,12 @@ public sealed class VpnService : IAsyncDisposable
 
     /// <summary>Three checks fifteen seconds apart, so a brief hiccup is not treated as a failure.</summary>
     private const int HealthFailuresBeforeGivingUp = 3;
+
+    /// <summary>
+    /// A single relay that cannot be reached is normal and produces one of these. A machine with no
+    /// route produces hundreds a minute, so the line between the two is not a fine one.
+    /// </summary>
+    private const int RouteFailuresBeforeGivingUp = 10;
 
     private Task? _healthTask;
 

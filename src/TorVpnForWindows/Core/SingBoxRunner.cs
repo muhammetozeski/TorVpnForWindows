@@ -18,6 +18,16 @@ public sealed class SingBoxRunner : IAsyncDisposable
     /// <summary>Set when sing-box reports that it could not put an IPv6 address on the adapter.</summary>
     private bool _ipv6ConfigurationFailed;
 
+    /// <summary>
+    /// How many times sing-box has said it has nowhere to send a connection since this was last
+    /// read. It says so once per attempt, so a machine that has lost its address produces hundreds
+    /// of these a minute while the adapter still looks connected and Tor still reports a circuit.
+    /// </summary>
+    private int _routeFailures;
+
+    /// <summary>Reads the count and clears it, so each caller sees only what happened on its watch.</summary>
+    public int TakeRouteFailures() => Interlocked.Exchange(ref _routeFailures, 0);
+
     public SingBoxRunner(JobObject job) => _job = job;
 
     public bool IsRunning => _process is { HasExited: false };
@@ -266,6 +276,11 @@ public sealed class SingBoxRunner : IAsyncDisposable
         }
 
         Log.SingBox(e.Data);
+
+        if (e.Data.Contains("no route to internet", StringComparison.OrdinalIgnoreCase))
+        {
+            Interlocked.Increment(ref _routeFailures);
+        }
 
         if (e.Data.Contains("set ipv6 address", StringComparison.OrdinalIgnoreCase))
         {
