@@ -36,6 +36,10 @@ public partial class App : Application
 
         Log.App($"Tor VPN for Windows {AppPaths.PayloadVersion} starting, language {LocManager.Current}");
 
+        // A run that was killed rather than closed leaves its bridge names behind in the hosts
+        // file. They are stale addresses for somebody else's site, so they go before anything else.
+        BridgeNameResolver.Clear();
+
         if (!IsElevated())
         {
             MessageBox.Show(Strings.ErrorNeedsAdmin, Strings.ErrorTitle, MessageBoxButton.OK, MessageBoxImage.Error);

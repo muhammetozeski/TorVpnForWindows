@@ -899,6 +899,10 @@ public sealed class VpnService : IAsyncDisposable
         _sessionCts?.Dispose();
         _sessionCts = null;
 
+        // The bridge names were only put in the hosts file so the transports could start without
+        // asking the network. Nothing needs them once the session is over.
+        BridgeNameResolver.Clear();
+
         ChildProcessRegistry.Clear();
 
         BytesRead = 0;

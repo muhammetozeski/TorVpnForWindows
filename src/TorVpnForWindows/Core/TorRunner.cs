@@ -63,6 +63,11 @@ public sealed partial class TorRunner : IAsyncDisposable
         if (bridges.Lines.Count > 0)
         {
             Log.App($"Using {bridges.Lines.Count} bridge line(s), source: {bridges.Origin}");
+
+            // The names in these lines are looked up before Tor exists, so the lookup cannot go
+            // through Tor and would otherwise be a plaintext question naming something from the
+            // Tor Project's public bridge file. They are resolved over HTTPS here instead.
+            await BridgeNameResolver.PrepareAsync(bridges.Lines, cancellationToken).ConfigureAwait(false);
         }
 
         var torrc = TorRcBuilder.Build(settings, Endpoints, bridges.Lines, binaries.Lyrebird.Path);

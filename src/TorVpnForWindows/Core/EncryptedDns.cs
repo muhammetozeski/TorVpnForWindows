@@ -29,6 +29,12 @@ public static class EncryptedDns
     /// </summary>
     private static readonly string[] Resolvers = ["1.1.1.1", "1.0.0.1", "9.9.9.9"];
 
+    /// <summary>
+    /// The addresses the kill switch has to let through for any of this to work. Exposed so that
+    /// the permit and the resolver cannot drift apart: adding a resolver here adds its permit.
+    /// </summary>
+    public static IReadOnlyList<string> ResolverAddresses => Resolvers;
+
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
     /// <summary>

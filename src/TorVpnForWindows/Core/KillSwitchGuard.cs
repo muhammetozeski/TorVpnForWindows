@@ -27,12 +27,14 @@ public sealed class KillSwitchGuard : IDisposable
     private static readonly Guid ConditionInterfaceIndex = new("667fd755-d695-434a-8af5-d3835a1259bc");
     private static readonly Guid ConditionIpProtocol = new("3971ef2b-623e-4f9a-8cb1-6e79b806b9a7");
     private static readonly Guid ConditionIpRemotePort = new("c35a604d-d22b-4e1a-91b4-68f674ee674b");
+    private static readonly Guid ConditionIpRemoteAddress = new("b235ae9a-1d64-49b8-a44c-5ff3d9095045");
 
     private const uint ConditionFlagIsLoopback = 0x00000001;
 
     private const byte ProtocolUdp = 17;
     private const ushort DhcpServerPort = 67;
     private const ushort DhcpV6ServerPort = 547;
+    private const ushort HttpsPort = 443;
 
     private const uint SessionFlagDynamic = 0x00000001;
     private const uint ActionBlock = 0x00001001;
@@ -55,6 +57,7 @@ public sealed class KillSwitchGuard : IDisposable
     // Weights inside our own sublayer. The block sits at the bottom; every permit outranks it.
     private const byte WeightBlock = 1;
     private const byte WeightPermitDhcp = 6;
+    private const byte WeightPermitEncryptedDns = 7;
     private const byte WeightPermitLoopback = 8;
     private const byte WeightPermitTunnel = 9;
     private const byte WeightPermitApp = 12;
@@ -109,6 +112,16 @@ public sealed class KillSwitchGuard : IDisposable
 
                 AddDhcpPermit(LayerAleAuthConnectV4, DhcpServerPort, "permit IPv4 DHCP");
                 AddDhcpPermit(LayerAleAuthConnectV6, DhcpV6ServerPort, "permit IPv6 DHCP");
+
+                var self = Environment.ProcessPath;
+
+                if (!string.IsNullOrEmpty(self))
+                {
+                    foreach (var resolver in EncryptedDns.ResolverAddresses)
+                    {
+                        AddEncryptedDnsPermit(self, resolver);
+                    }
+                }
 
                 foreach (var executable in permittedExecutables)
                 {
@@ -395,6 +408,76 @@ public sealed class KillSwitchGuard : IDisposable
         ];
 
         return AddFilter(layer, ActionPermit, WeightPermitDhcp, description, conditions);
+    }
+
+    /// <summary>
+    /// Lets one named program reach one numeric address on the HTTPS port, and nothing else.
+    ///
+    /// This is what carries the encrypted name lookups a bridge needs before Tor exists. It is
+    /// written with all three conditions on purpose: naming the program alone would let it reach
+    /// anything, and naming the address alone would let anything on the machine reach it.
+    /// </summary>
+    private void AddEncryptedDnsPermit(string executablePath, string resolverAddress)
+    {
+        if (!File.Exists(executablePath))
+        {
+            return;
+        }
+
+        if (!System.Net.IPAddress.TryParse(resolverAddress, out var parsed) ||
+            parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            Log.App($"Kill switch: '{resolverAddress}' is not an IPv4 address, no permit added");
+            return;
+        }
+
+        var result = FwpmGetAppIdFromFileName0(executablePath, out var appIdPtr);
+        if (result != ErrorSuccess || appIdPtr == nint.Zero)
+        {
+            Log.App($"Kill switch: could not build an application identifier for {executablePath} (0x{result:X8})");
+            return;
+        }
+
+        try
+        {
+            // WFP takes an IPv4 address as a number in host order, not in the order it travels on
+            // the wire, so the octets are assembled rather than copied.
+            var octets = parsed.GetAddressBytes();
+            var value = ((uint)octets[0] << 24) | ((uint)octets[1] << 16) | ((uint)octets[2] << 8) | octets[3];
+
+            FwpmFilterCondition0[] conditions =
+            [
+                new()
+                {
+                    FieldKey = ConditionAleAppId,
+                    MatchType = MatchEqual,
+                    ConditionValue = new FwpConditionValue0 { Type = TypeByteBlob, Value = (ulong)appIdPtr }
+                },
+                new()
+                {
+                    FieldKey = ConditionIpRemoteAddress,
+                    MatchType = MatchEqual,
+                    ConditionValue = new FwpConditionValue0 { Type = TypeUInt32, Value = value }
+                },
+                new()
+                {
+                    FieldKey = ConditionIpRemotePort,
+                    MatchType = MatchEqual,
+                    ConditionValue = new FwpConditionValue0 { Type = TypeUInt16, Value = HttpsPort }
+                }
+            ];
+
+            AddFilter(
+                LayerAleAuthConnectV4,
+                ActionPermit,
+                WeightPermitEncryptedDns,
+                $"permit encrypted DNS to {resolverAddress}",
+                conditions);
+        }
+        finally
+        {
+            FwpmFreeMemory0(ref appIdPtr);
+        }
     }
 
     private ulong AddInterfacePermit(Guid layer, int interfaceIndex, string description)
