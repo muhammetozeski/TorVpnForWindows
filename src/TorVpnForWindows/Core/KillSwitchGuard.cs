@@ -25,8 +25,14 @@ public sealed class KillSwitchGuard : IDisposable
     private static readonly Guid ConditionFlags = new("632ce23b-5167-435c-86d7-e903684aa80c");
     private static readonly Guid ConditionAleAppId = new("d78e1e87-8644-4ea5-9437-d809ecefc971");
     private static readonly Guid ConditionInterfaceIndex = new("667fd755-d695-434a-8af5-d3835a1259bc");
+    private static readonly Guid ConditionIpProtocol = new("3971ef2b-623e-4f9a-8cb1-6e79b806b9a7");
+    private static readonly Guid ConditionIpRemotePort = new("c35a604d-d22b-4e1a-91b4-68f674ee674b");
 
     private const uint ConditionFlagIsLoopback = 0x00000001;
+
+    private const byte ProtocolUdp = 17;
+    private const ushort DhcpServerPort = 67;
+    private const ushort DhcpV6ServerPort = 547;
 
     private const uint SessionFlagDynamic = 0x00000001;
     private const uint ActionBlock = 0x00001001;
@@ -40,6 +46,7 @@ public sealed class KillSwitchGuard : IDisposable
     // is a pointer, makes it dereference the number itself and take the process down with an access
     // violation.
     private const uint TypeUInt8 = 1;
+    private const uint TypeUInt16 = 2;
     private const uint TypeUInt32 = 3;
     private const uint TypeByteBlob = 12;
 
@@ -47,6 +54,7 @@ public sealed class KillSwitchGuard : IDisposable
 
     // Weights inside our own sublayer. The block sits at the bottom; every permit outranks it.
     private const byte WeightBlock = 1;
+    private const byte WeightPermitDhcp = 6;
     private const byte WeightPermitLoopback = 8;
     private const byte WeightPermitTunnel = 9;
     private const byte WeightPermitApp = 12;
@@ -98,6 +106,9 @@ public sealed class KillSwitchGuard : IDisposable
 
                 AddLoopbackPermit(LayerAleAuthConnectV4, "permit IPv4 loopback");
                 AddLoopbackPermit(LayerAleAuthConnectV6, "permit IPv6 loopback");
+
+                AddDhcpPermit(LayerAleAuthConnectV4, DhcpServerPort, "permit IPv4 DHCP");
+                AddDhcpPermit(LayerAleAuthConnectV6, DhcpV6ServerPort, "permit IPv6 DHCP");
 
                 foreach (var executable in permittedExecutables)
                 {
@@ -349,6 +360,41 @@ public sealed class KillSwitchGuard : IDisposable
         };
 
         return AddFilter(layer, ActionPermit, WeightPermitLoopback, description, [condition]);
+    }
+
+    /// <summary>
+    /// Lets the machine renew its address lease while everything else stays blocked.
+    ///
+    /// The DHCP client runs inside svchost.exe, which is not on the permit list, so the block caught
+    /// its renewal. A lease is not forever: a phone hotspot hands out an hour. The renewal at the
+    /// half hour was dropped, the lease then expired, Windows released the address, the default
+    /// route went with it and every connection failed with "no route to internet" while the adapter
+    /// still showed as connected. Closing the application fixed it, which is what made it look like
+    /// the tunnel had died rather than the address.
+    ///
+    /// The permit is written as narrowly as the layer allows: outbound UDP to the DHCP server port
+    /// and nothing else. It does not name svchost.exe, because that would open every other thing
+    /// that process does, the resolver included.
+    /// </summary>
+    private ulong AddDhcpPermit(Guid layer, ushort serverPort, string description)
+    {
+        FwpmFilterCondition0[] conditions =
+        [
+            new()
+            {
+                FieldKey = ConditionIpProtocol,
+                MatchType = MatchEqual,
+                ConditionValue = new FwpConditionValue0 { Type = TypeUInt8, Value = ProtocolUdp }
+            },
+            new()
+            {
+                FieldKey = ConditionIpRemotePort,
+                MatchType = MatchEqual,
+                ConditionValue = new FwpConditionValue0 { Type = TypeUInt16, Value = serverPort }
+            }
+        ];
+
+        return AddFilter(layer, ActionPermit, WeightPermitDhcp, description, conditions);
     }
 
     private ulong AddInterfacePermit(Guid layer, int interfaceIndex, string description)
