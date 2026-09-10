@@ -84,12 +84,15 @@ public static class BridgeProvider
                     $"Using cached built-in bridges from {cache.FetchedAt:yyyy-MM-dd HH:mm} UTC " +
                     $"({age.TotalDays:0.#} day(s) old)");
 
-                return Task.FromResult(new BridgeSet(cached, BridgeOrigin.Cached, cache.FetchedAt));
+                return Task.FromResult(
+                    new BridgeSet(WithChosenFront(cached, settings), BridgeOrigin.Cached, cache.FetchedAt));
             }
         }
 
         Log.App("No cached bridge list yet; using the built-in one until a connection can refresh it");
-        return Task.FromResult(new BridgeSet(BuiltInBridges.For(settings.BridgeMode).ToList(), BridgeOrigin.Embedded, null));
+
+        var embedded = BuiltInBridges.For(settings.BridgeMode).ToList();
+        return Task.FromResult(new BridgeSet(WithChosenFront(embedded, settings), BridgeOrigin.Embedded, null));
     }
 
     /// <summary>
@@ -178,6 +181,15 @@ public static class BridgeProvider
             return null;
         }
     }
+
+    /// <summary>
+    /// Puts the user's chosen front into the meek lines. Only meek has a front, so every other mode
+    /// passes through and the call costs nothing.
+    /// </summary>
+    private static List<string> WithChosenFront(IReadOnlyList<string> lines, AppSettings settings) =>
+        settings.BridgeMode == BridgeMode.Meek
+            ? MeekFronts.ApplyTo(lines, settings.MeekFront)
+            : [.. lines];
 
     private static List<string> Select(BridgeCache cache, BridgeMode mode)
     {

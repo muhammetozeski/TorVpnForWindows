@@ -27,6 +27,15 @@ public sealed class AppSettings
 
     public BridgeMode BridgeMode { get; set; } = BridgeMode.None;
 
+    /// <summary>
+    /// Which name meek hides behind: one of <see cref="MeekFronts"/>, "mixed" for all of them, or
+    /// null to use the line exactly as the Tor Project publishes it.
+    ///
+    /// Kept here rather than in the bridge cache because it is a choice, not a fetched fact. The
+    /// cache is replaced wholesale every few days; this has to survive that.
+    /// </summary>
+    public string? MeekFront { get; set; }
+
     public List<string> CustomBridges { get; set; } = [];
 
     /// <summary>
@@ -157,6 +166,22 @@ public sealed class AppSettings
             .Select(b => b.Trim())
             .Where(b => b.Length > 0 && !b.StartsWith('#'))
             .ToList();
+
+        if (!string.IsNullOrWhiteSpace(MeekFront))
+        {
+            MeekFront = MeekFront.Trim();
+
+            if (!MeekFront.Equals(MeekFronts.Mixed, StringComparison.OrdinalIgnoreCase) &&
+                !MeekFronts.IsKnown(MeekFront))
+            {
+                Log.App($"Unknown meek front '{MeekFront}' in settings; falling back to the published one");
+                MeekFront = null;
+            }
+        }
+        else
+        {
+            MeekFront = null;
+        }
 
         if (BridgeMode == BridgeMode.Custom && CustomBridges.Count == 0)
         {
