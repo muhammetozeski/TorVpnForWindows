@@ -110,6 +110,8 @@ public partial class MainWindow : Window
         BridgeLabel.Text = Strings.SettingBridges;
         BridgeHint.Text = Strings.SettingBridgesHint;
         CustomBridgeHint.Text = Strings.SettingBridgesCustomHint;
+        MeekFrontLabel.Text = Strings.MeekFrontLabel;
+        MeekFrontHint.Text = Strings.MeekFrontHint;
 
         KillSwitchLabel.Text = Strings.SettingKillSwitch;
         KillSwitchHint.Text = Strings.SettingKillSwitchHint;
@@ -189,6 +191,19 @@ public partial class MainWindow : Window
             BridgeCombo.SelectedItem =
                 bridgeModes.FirstOrDefault(b => b.Value == _settings.BridgeMode.ToString())
                 ?? bridgeModes[0];
+
+            // The published line first, then everything at once, then the individual names. Each
+            // one says what the site is, because a bare domain gives no idea what it would look
+            // like to somebody reading the network logs.
+            var fronts = new List<ComboItem> { new(string.Empty, Strings.MeekFrontDefault) };
+            fronts.Add(new ComboItem(MeekFronts.Mixed, Strings.MeekFrontMixed));
+            fronts.AddRange(MeekFronts.All.Select(f => new ComboItem(f.Domain, $"{f.Domain} ({f.Description})")));
+
+            MeekFrontCombo.ItemsSource = fronts;
+            MeekFrontCombo.DisplayMemberPath = nameof(ComboItem.Label);
+            MeekFrontCombo.SelectedItem =
+                fronts.FirstOrDefault(f => string.Equals(f.Value, _settings.MeekFront ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                ?? fronts[0];
         }
         finally
         {
@@ -215,6 +230,9 @@ public partial class MainWindow : Window
 
             CustomBridgePanel.Visibility =
                 _settings.BridgeMode == BridgeMode.Custom ? Visibility.Visible : Visibility.Collapsed;
+
+            MeekFrontPanel.Visibility =
+                _settings.BridgeMode == BridgeMode.Meek ? Visibility.Visible : Visibility.Collapsed;
         }
         finally
         {
@@ -560,7 +578,19 @@ public partial class MainWindow : Window
             _settings.BridgeMode = mode;
             _settings.Save();
             CustomBridgePanel.Visibility = mode == BridgeMode.Custom ? Visibility.Visible : Visibility.Collapsed;
+            MeekFrontPanel.Visibility = mode == BridgeMode.Meek ? Visibility.Visible : Visibility.Collapsed;
         }
+    }
+
+    private void OnMeekFrontChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || MeekFrontCombo.SelectedItem is not ComboItem item)
+        {
+            return;
+        }
+
+        _settings.MeekFront = string.IsNullOrEmpty(item.Value) ? null : item.Value;
+        _settings.Save();
     }
 
     private void OnCustomBridgesLostFocus(object sender, RoutedEventArgs e)

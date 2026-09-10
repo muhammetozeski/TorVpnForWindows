@@ -264,6 +264,20 @@
                         </Grid>
                         <TextBlock x:Name="BridgeHint" Style="{StaticResource Muted}" />
 
+                        <StackPanel x:Name="MeekFrontPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="MeekFrontLabel" Grid.Column="0" Text="Front"
+                                           VerticalAlignment="Center" />
+                                <ComboBox x:Name="MeekFrontCombo" Grid.Column="1" Width="170"
+                                          SelectionChanged="OnMeekFrontChanged" />
+                            </Grid>
+                            <TextBlock x:Name="MeekFrontHint" Style="{StaticResource Muted}" />
+                        </StackPanel>
+
                         <StackPanel x:Name="CustomBridgePanel" Visibility="Collapsed" Margin="0,10,0,0">
                             <TextBlock x:Name="CustomBridgeHint" Style="{StaticResource Muted}"
                                        Margin="0,0,0,6" />

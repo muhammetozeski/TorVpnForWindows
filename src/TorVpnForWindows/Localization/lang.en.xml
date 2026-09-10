@@ -61,6 +61,10 @@
   <s name="BridgeCustom">Custom list</s>
   <s name="SettingBridgesHint">Bridges hide the fact that you are using Tor from whoever runs your network. The built-in lists are fetched from the Tor Project and cached.</s>
   <s name="SettingBridgesCustomHint">One bridge line per line. Get them from bridges.torproject.org.</s>
+  <s name="MeekFrontLabel">Visible address</s>
+  <s name="MeekFrontHint">meek opens the connection under this site's name. Anyone watching the network sees that name and nothing about Tor. Mixed shuffles the order on every attempt.</s>
+  <s name="MeekFrontDefault">As published by the Tor Project</s>
+  <s name="MeekFrontMixed">Mixed</s>
 
   <s name="SettingKillSwitch">Block the internet when the connection drops</s>
   <s name="SettingKillSwitchHint">While there is no Tor connection the whole internet stays blocked, and it stays blocked when the network comes back until Tor is connected again.</s>

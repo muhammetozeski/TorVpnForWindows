@@ -83,6 +83,11 @@ internal static class Strings
         "Köprüler, Tor kullandığınızı ağınızı yöneten taraftan gizler. Yerleşik listeler Tor Project'ten çekilip önbelleğe alınır.";
     public static string SettingBridgesCustomHint =
         "Her satıra bir köprü satırı. bridges.torproject.org adresinden alabilirsiniz.";
+    public static string MeekFrontLabel = "Görünen adres";
+    public static string MeekFrontHint =
+        "meek, bağlantıyı bu sitenin adı altında kurar. Ağı izleyen taraf bu adı görür, Tor'a dair bir şey görmez. Karışık seçildiğinde her denemede sıra karışır.";
+    public static string MeekFrontDefault = "Tor Project'in yayınladığı";
+    public static string MeekFrontMixed = "Karışık";
 
     // ---- settings: toggles ----
     public static string SettingKillSwitch = "Bağlantı düştüğünde interneti engelle";
