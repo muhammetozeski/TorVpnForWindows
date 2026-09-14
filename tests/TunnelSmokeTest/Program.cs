@@ -127,8 +127,20 @@ internal static class Program
         _vpn = new VpnService(settings);
         _vpn.StatusChanged += status => Say($"    state -> {status.State} {status.BootstrapProgress}% {status.BootstrapSummary}");
 
+        // Connect only starts the supervisor; the session reports its progress through the state
+        // changes, so the test waits for Connected rather than for the call to return.
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _vpn.StatusChanged += status =>
+        {
+            if (status.State == VpnState.Connected)
+            {
+                connected.TrySetResult();
+            }
+        };
+
         var started = Stopwatch.StartNew();
         await _vpn.ConnectAsync().ConfigureAwait(false);
+        await Task.WhenAny(connected.Task, Task.Delay(TimeSpan.FromMinutes(4))).ConfigureAwait(false);
         started.Stop();
 
         Check("the session reached Connected", _vpn.State == VpnState.Connected,

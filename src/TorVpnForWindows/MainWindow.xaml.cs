@@ -481,7 +481,7 @@ public partial class MainWindow : Window
 
     private async void OnPowerToggleClick(object sender, RoutedEventArgs e)
     {
-        if (_vpn.CanDisconnect && _vpn.State != VpnState.Failed)
+        if (_vpn.WantsConnection)
         {
             await _vpn.DisconnectAsync();
         }

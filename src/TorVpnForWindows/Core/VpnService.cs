@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using TorVpnForWindows.Config;
 
 namespace TorVpnForWindows.Core;
@@ -21,8 +20,8 @@ public enum VpnState
     Disconnecting,
 
     /// <summary>
-    /// The tunnel went down on its own. With the kill switch on, the routes stay in place, so
-    /// traffic is blocked rather than falling back to the unprotected connection.
+    /// The session broke and is being started over. With the kill switch on, traffic stays blocked
+    /// until the new session is up.
     /// </summary>
     Interrupted,
 
@@ -54,19 +53,46 @@ public sealed record TrafficSnapshot(
 /// <summary>
 /// Drives the whole session: Tor first, then the tunnel, then the exit check. Everything the user
 /// interface shows comes from here.
+///
+/// A single supervisor loop owns the session for as long as a connection is wanted. It starts an
+/// attempt, and whenever that attempt ends, for whatever reason, it tears it down and starts the
+/// next one. Everything that used to restart the session on its own path now asks the supervisor
+/// instead: the retry button, a child process exiting, the health check.
+///
+/// It is built this way because the separate paths fought each other. A retry pressed while Tor was
+/// still bootstrapping cancelled the connect, and the connect's own cancellation handler took the
+/// kill switch down before the retry put it back up, so for a moment the machine was online without
+/// Tor. A disconnect pressed during the same bootstrap waited for the connect to finish, which with
+/// no network it never did. With one owner, a restart cancels the attempt and the block is left
+/// exactly as it was; only an explicit disconnect removes it.
 /// </summary>
 public sealed class VpnService : IAsyncDisposable
 {
     private readonly JobObject _job = new();
-    private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private readonly KillSwitchGuard _killSwitch = new();
+
+    /// <summary>Serializes connect, disconnect and retry against each other.</summary>
+    private readonly SemaphoreSlim _commandGate = new(1, 1);
+
+    private readonly SemaphoreSlim _teardownGate = new(1, 1);
+
+    /// <summary>Guards the attempt token and the reason it is being ended.</summary>
+    private readonly Lock _attemptGate = new();
 
     /// <summary>True while the kill switch is holding traffic back after an unplanned drop.</summary>
     public bool TrafficBlocked => _killSwitch.IsArmed && State != VpnState.Connected;
 
+    private volatile bool _wantConnected;
+    private Task? _supervisor;
+    private CancellationTokenSource? _attemptCts;
+    private AttemptEnd _pendingEnd;
+    private string? _pendingReason;
+
+    /// <summary>Failed attempts in a row, which sets how long the supervisor waits before the next.</summary>
+    private int _consecutiveFailures;
+
     private TorRunner? _tor;
     private SingBoxRunner? _singBox;
-    private CancellationTokenSource? _sessionCts;
     private Task? _statsTask;
 
     private int _bootstrapProgress;
@@ -95,10 +121,29 @@ public sealed class VpnService : IAsyncDisposable
     public VpnStatus CurrentStatus =>
         new(State, _bootstrapProgress, _bootstrapSummary, _exit, _message);
 
-    public bool CanConnect => State is VpnState.Disconnected or VpnState.Failed or VpnState.Interrupted;
+    /// <summary>
+    /// Whether the user has asked for a connection and not yet asked to disconnect. While this is
+    /// true the supervisor keeps working on a connection, whatever state the current attempt is in.
+    /// </summary>
+    public bool WantsConnection => _wantConnected;
 
-    public bool CanDisconnect => State is VpnState.Connected or VpnState.Interrupted
-        or VpnState.Bootstrapping or VpnState.EstablishingTunnel or VpnState.Preparing;
+    /// <summary>
+    /// How an attempt is being ended. Ordered by precedence: a stop outranks a restart, and a restart
+    /// outranks a failure, because what the user asked for is what counts.
+    /// </summary>
+    private enum AttemptEnd
+    {
+        None,
+
+        /// <summary>Something went wrong on its own. The next attempt waits a little.</summary>
+        Failure,
+
+        /// <summary>Start over now: the retry button, or a change that makes the current attempt stale.</summary>
+        Restart,
+
+        /// <summary>Disconnect or exit. No next attempt.</summary>
+        Stop
+    }
 
     /// <summary>
     /// Blocks traffic straight away, before anything is connected, and leaves it blocked.
@@ -139,368 +184,78 @@ public sealed class VpnService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Asks for a connection. Returns as soon as the supervisor is running; the state changes report
+    /// how it goes from there.
+    /// </summary>
     public async Task ConnectAsync()
     {
-        await _transitionGate.WaitAsync().ConfigureAwait(false);
+        await _commandGate.WaitAsync().ConfigureAwait(false);
 
         try
         {
-            if (!CanConnect)
-            {
-                Log.App($"Connect ignored, current state is {State}");
-                return;
-            }
-
-            // A previous session that ended badly can leave the routes in place. The block, if one
-            // is up, stays: this is a retry, not a decision to stop protecting the machine.
-            await TearDownAsync(disarmKillSwitch: false).ConfigureAwait(false);
-
-            _sessionCts = new CancellationTokenSource();
-            var token = _sessionCts.Token;
-
-            _exit = null;
-            _bootstrapProgress = 0;
-            _bootstrapSummary = null;
-            SetState(VpnState.Preparing, null);
-
-            ChildProcessRegistry.KillLeftovers();
-            PayloadExtractor.EnsureExtracted();
-
-            // Resolved per connect so a tool installed or updated since the last session is used.
-            var binaries = Binaries.Resolve();
-            foreach (var line in binaries.Describe())
-            {
-                Log.App(line);
-            }
-
-            var excluded = ExclusionList.Read();
-            if (excluded.Count > 0)
-            {
-                Log.App($"Excluded from the tunnel: {string.Join(", ", excluded)}");
-            }
-
-            // The block goes on before Tor even starts. Everything except Tor's own processes and
-            // the excluded applications is cut off from here until the tunnel is up, and stays cut
-            // off if it later drops.
-            if (Settings.KillSwitch &&
-                !_killSwitch.Arm(KillSwitchGuard.BuildPermitList(binaries, excluded)))
-            {
-                Log.App("The kill switch could not be armed; continuing without it");
-            }
-
-            _tor = new TorRunner(_job);
-            _tor.BootstrapChanged += OnBootstrapChanged;
-            _tor.Exited += OnTorExited;
-            _tor.ProcessStarted = pid =>
-                _killSwitch.PermitProcessTreeAsync(pid, TimeSpan.FromSeconds(6), token);
-
-            SetState(VpnState.Bootstrapping, null);
-            await _tor.StartAsync(Settings, binaries, token).ConfigureAwait(false);
-            await _tor.WaitForBootstrapAsync(token).ConfigureAwait(false);
-
-            Log.App("Tor finished bootstrapping");
-
-            var endpoints = _tor.Endpoints
-                ?? throw new InvalidOperationException("Tor started without resolving its ports.");
-
-            SetState(VpnState.EstablishingTunnel, null);
-
-            // Read the machine's resolvers before the TUN takes over, otherwise the answer is the
-            // tunnel's own address.
-            var upstreamDns = NetworkProbe.GetUpstreamDnsServers();
-            Log.App($"Upstream DNS for excluded traffic: {string.Join(", ", upstreamDns)}");
-            Log.App($"Default interface before the tunnel: {NetworkProbe.GetDefaultInterfaceName() ?? "unknown"}");
-
-            _singBox = new SingBoxRunner(_job);
-            _singBox.Exited += OnSingBoxExited;
-            await _singBox.StartAsync(Settings, binaries, endpoints, excluded, upstreamDns, token).ConfigureAwait(false);
-
-            // Let traffic out again, but only through the tunnel adapter.
-            if (_killSwitch.IsArmed)
-            {
-                var index = NetworkProbe.GetInterfaceIndex(Settings.TunInterfaceName);
-                if (index is null)
-                {
-                    throw new InvalidOperationException(
-                        $"The tunnel adapter {Settings.TunInterfaceName} has no interface index, so the kill switch " +
-                        "cannot be opened for it. Traffic would stay blocked.");
-                }
-
-                _killSwitch.OpenTunnel(index.Value);
-            }
-
-            SetState(VpnState.Connected, null);
-
-            StartStatsLoop(token);
-            StartHealthLoop(token);
-            _ = VerifyTunnelAsync(endpoints, token);
-
-            // Now that there is a connection, the bridge list can be refreshed from inside it. It
-            // is never fetched before this point, because doing so would name the Tor Project on an
-            // unprotected connection, which is what a bridge exists to avoid.
-            _ = BridgeProvider.RefreshThroughTorAsync(Settings, endpoints.SocksPort, token);
-        }
-        catch (OperationCanceledException)
-        {
-            Log.App("Connect was cancelled");
-            await TearDownAsync(disarmKillSwitch: true).ConfigureAwait(false);
-            SetState(VpnState.Disconnected, null);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Connect failed", ex);
-
-            // With the kill switch on, a failed connect leaves the block in place: the point is
-            // that traffic never leaves unprotected, including while this is still trying.
-            var keepBlocking = _killSwitch.IsArmed;
-            await TearDownAsync(disarmKillSwitch: !keepBlocking).ConfigureAwait(false);
-
-            if (keepBlocking)
-            {
-                SetState(VpnState.Interrupted, ex.Message);
-                ScheduleReconnect();
-            }
-            else
-            {
-                SetState(VpnState.Failed, ex.Message);
-            }
+            StartSupervisor();
         }
         finally
         {
-            _transitionGate.Release();
+            _commandGate.Release();
         }
     }
 
     /// <summary>
-    /// Stops everything immediately, whatever state the session is in, without letting traffic out.
-    ///
-    /// The order matters. The session token is cancelled and the child processes are killed before
-    /// the transition gate is taken, so an in-flight connect throws and unwinds instead of holding
-    /// the gate while this waits for it. The block stays armed throughout: an abort is a failure to
-    /// protect the machine, not a decision to stop protecting it.
-    /// </summary>
-    public async Task AbortAsync(string reason)
-    {
-        Log.App($"Aborting: {reason}");
-
-        try
-        {
-            if (_sessionCts is not null)
-            {
-                await _sessionCts.CancelAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Cancelling the session during abort failed", ex);
-        }
-
-        // Kill first, ask questions later. Anything waiting on these processes now fails fast.
-        try
-        {
-            _singBox?.RequestImmediateStop();
-            _tor?.RequestImmediateStop();
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Killing the child processes during abort failed", ex);
-        }
-
-        await _transitionGate.WaitAsync().ConfigureAwait(false);
-
-        try
-        {
-            SetState(VpnState.Disconnecting, reason);
-
-            // The block is kept if it was on, so nothing escapes between this and the next attempt.
-            var keepBlocking = _killSwitch.IsArmed;
-            await TearDownAsync(disarmKillSwitch: !keepBlocking).ConfigureAwait(false);
-
-            SetState(keepBlocking ? VpnState.Interrupted : VpnState.Failed, reason);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Abort failed", ex);
-            SetState(VpnState.Failed, ex.Message);
-        }
-        finally
-        {
-            _transitionGate.Release();
-        }
-    }
-
-    /// <summary>
-    /// Stops whatever is happening and starts over. Available in every state, including while a
-    /// connect is still running, because a connect that is going nowhere is exactly when it is
-    /// wanted.
+    /// Stops whatever is happening and starts over from nothing: Tor, its bridges and the tunnel.
+    /// Available in every state and as often as it is pressed. With the kill switch on, traffic stays
+    /// blocked the whole time; with it off, nothing is blocked.
     /// </summary>
     public async Task RetryAsync()
     {
-        await AbortAsync("Restarting the connection.").ConfigureAwait(false);
-        await ConnectAsync().ConfigureAwait(false);
-    }
+        await _commandGate.WaitAsync().ConfigureAwait(false);
 
-    /// <summary>
-    /// Watches a live session and ends it the moment it stops carrying traffic.
-    ///
-    /// Without this the application reported Connected for as long as it was left alone. On one run
-    /// the underlying network went away four minutes after connecting; Tor could no longer reach a
-    /// single relay, and the session sat there showing green for four hours and forty minutes while
-    /// nothing worked. Tor knows whether it has a usable circuit, so it is asked.
-    /// </summary>
-    private void StartHealthLoop(CancellationToken cancellationToken)
-    {
-        _healthTask = Task.Run(async () =>
+        try
         {
-            var consecutiveFailures = 0;
-
-            while (!cancellationToken.IsCancellationRequested)
+            if (_supervisor is { IsCompleted: false } && _wantConnected)
             {
-                try
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
-
-                    if (State != VpnState.Connected)
-                    {
-                        continue;
-                    }
-
-                    // Asking Tor is not enough on its own. When the machine loses its address the
-                    // adapter stays up, Tor keeps reporting an established circuit from the ones it
-                    // already had, and the session sits there green while nothing reaches the
-                    // network. sing-box notices immediately, because every connection it tries to
-                    // open has nowhere to go, so its complaint is counted and treated as the failure
-                    // it is.
-                    var routeFailures = _singBox?.TakeRouteFailures() ?? 0;
-
-                    if (routeFailures >= RouteFailuresBeforeGivingUp)
-                    {
-                        Log.App(
-                            $"The tunnel has no way out to the network ({routeFailures} failed connection(s) " +
-                            "in the last fifteen seconds)");
-
-                        await AbortAsync(
-                            "The connection stopped carrying traffic. Traffic is blocked while it is retried.")
-                            .ConfigureAwait(false);
-
-                        ScheduleReconnect();
-                        return;
-                    }
-
-                    var control = _tor?.Control;
-
-                    var healthy = control is { IsConnected: true } &&
-                                  await control.GetInfoAsync("status/circuit-established", cancellationToken)
-                                      .ConfigureAwait(false) == "1";
-
-                    if (healthy)
-                    {
-                        if (consecutiveFailures > 0)
-                        {
-                            Log.App("Tor has a usable circuit again");
-                        }
-
-                        consecutiveFailures = 0;
-                        continue;
-                    }
-
-                    consecutiveFailures++;
-                    Log.App($"Tor reports no usable circuit ({consecutiveFailures} check(s) in a row)");
-
-                    if (consecutiveFailures < HealthFailuresBeforeGivingUp)
-                    {
-                        continue;
-                    }
-
-                    await AbortAsync(
-                        "The connection stopped carrying traffic. Traffic is blocked while it is retried.")
-                        .ConfigureAwait(false);
-
-                    ScheduleReconnect();
-                    return;
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    Log.Error("The health check failed", ex);
-                }
+                EndAttempt(AttemptEnd.Restart, "Restarting the connection.");
+                return;
             }
-        }, CancellationToken.None);
+
+            StartSupervisor();
+        }
+        finally
+        {
+            _commandGate.Release();
+        }
     }
 
-    /// <summary>Three checks fifteen seconds apart, so a brief hiccup is not treated as a failure.</summary>
-    private const int HealthFailuresBeforeGivingUp = 3;
-
     /// <summary>
-    /// A single relay that cannot be reached is normal and produces one of these. A machine with no
-    /// route produces hundreds a minute, so the line between the two is not a fine one.
+    /// Starts the session over if a connection is wanted. Used when something the running session was
+    /// built from has changed, so that the change takes effect now instead of on the next connect.
     /// </summary>
-    private const int RouteFailuresBeforeGivingUp = 10;
-
-    private Task? _healthTask;
-
-    /// <summary>
-    /// Retries in the background while the kill switch is holding traffic. This is what gets the
-    /// machine back online by itself after the network drops and returns, without the user having
-    /// to notice and press anything.
-    /// </summary>
-    private void ScheduleReconnect()
+    public void RequestRestart(string reason)
     {
-        if (_reconnectRunning)
+        if (!_wantConnected)
         {
             return;
         }
 
-        _reconnectRunning = true;
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                while (State == VpnState.Interrupted && _killSwitch.IsArmed)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-
-                    if (State != VpnState.Interrupted || !_killSwitch.IsArmed)
-                    {
-                        return;
-                    }
-
-                    Log.App("Kill switch is holding traffic; trying to reconnect");
-                    await ConnectAsync().ConfigureAwait(false);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error("The reconnect loop stopped", ex);
-            }
-            finally
-            {
-                _reconnectRunning = false;
-            }
-        });
+        EndAttempt(AttemptEnd.Restart, reason);
     }
-
-    private volatile bool _reconnectRunning;
 
     public async Task DisconnectAsync()
     {
-        await _transitionGate.WaitAsync().ConfigureAwait(false);
+        await _commandGate.WaitAsync().ConfigureAwait(false);
 
         try
         {
-            if (State == VpnState.Disconnected)
+            if (!_wantConnected && _supervisor is null && State == VpnState.Disconnected)
             {
                 return;
             }
 
-            SetState(VpnState.Disconnecting, null);
+            await StopSupervisorAsync().ConfigureAwait(false);
 
             // An explicit disconnect is the one case where the block comes off.
-            await TearDownAsync(disarmKillSwitch: true).ConfigureAwait(false);
+            _killSwitch.Disarm();
             SetState(VpnState.Disconnected, null);
         }
         catch (Exception ex)
@@ -510,7 +265,7 @@ public sealed class VpnService : IAsyncDisposable
         }
         finally
         {
-            _transitionGate.Release();
+            _commandGate.Release();
         }
     }
 
@@ -534,7 +289,7 @@ public sealed class VpnService : IAsyncDisposable
         _exit = null;
         RaiseStatus();
 
-        var token = _sessionCts?.Token ?? CancellationToken.None;
+        var token = CurrentAttemptToken();
 
         // Existing circuits are kept for connections already open, so the new exit only shows up
         // once a fresh circuit is built. A short pause avoids reporting the old address again.
@@ -550,6 +305,421 @@ public sealed class VpnService : IAsyncDisposable
         await RefreshExitInfoAsync(token).ConfigureAwait(false);
         return true;
     }
+
+    // ------------------------------------------------------------------ supervisor
+
+    private void StartSupervisor()
+    {
+        _wantConnected = true;
+
+        if (_supervisor is { IsCompleted: false })
+        {
+            return;
+        }
+
+        lock (_attemptGate)
+        {
+            _pendingEnd = AttemptEnd.None;
+            _pendingReason = null;
+        }
+
+        _consecutiveFailures = 0;
+        _supervisor = Task.Run(SuperviseAsync);
+    }
+
+    private async Task StopSupervisorAsync()
+    {
+        _wantConnected = false;
+
+        var supervisor = _supervisor;
+
+        if (supervisor is not null && !supervisor.IsCompleted)
+        {
+            SetState(VpnState.Disconnecting, null);
+            EndAttempt(AttemptEnd.Stop, null);
+
+            try
+            {
+                await supervisor.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("The connection supervisor failed while stopping", ex);
+            }
+        }
+
+        _supervisor = null;
+
+        // Nothing should be left, but a supervisor that died on an unexpected exception may not have
+        // reached its own teardown.
+        await TearDownSessionAsync().ConfigureAwait(false);
+    }
+
+    private async Task SuperviseAsync()
+    {
+        var delay = TimeSpan.Zero;
+
+        try
+        {
+            while (_wantConnected)
+            {
+                var token = BeginAttempt();
+                string? message = null;
+
+                try
+                {
+                    if (delay > TimeSpan.Zero)
+                    {
+                        Log.App($"Trying again in {delay.TotalSeconds:0} s");
+                        await Task.Delay(delay, token).ConfigureAwait(false);
+                    }
+
+                    await RunSessionAsync(token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    var (end, reason) = TakeAttemptEnd();
+
+                    switch (end)
+                    {
+                        case AttemptEnd.Stop:
+                            delay = TimeSpan.Zero;
+                            break;
+
+                        case AttemptEnd.Restart:
+                            Log.App($"Starting the connection over: {reason}");
+                            _consecutiveFailures = 0;
+                            delay = TimeSpan.Zero;
+                            message = reason;
+                            break;
+
+                        default:
+                            message = reason ?? ex.Message;
+
+                            if (reason is not null)
+                            {
+                                Log.App($"The session ended: {reason}");
+                            }
+                            else
+                            {
+                                Log.Error("The connection attempt failed", ex);
+                            }
+
+                            _consecutiveFailures++;
+                            delay = RetryDelay(_consecutiveFailures);
+                            break;
+                    }
+                }
+
+                // Whatever ended the attempt, everything it started goes now: the statistics loop,
+                // the tunnel verification and the bridge refresh all hang off this token.
+                CancelCurrentAttempt();
+                await TearDownSessionAsync().ConfigureAwait(false);
+
+                if (_wantConnected)
+                {
+                    SetState(VpnState.Interrupted, message);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("The connection supervisor stopped", ex);
+        }
+        finally
+        {
+            lock (_attemptGate)
+            {
+                _attemptCts?.Dispose();
+                _attemptCts = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Waits a little longer after each failure in a row, so an attempt that cannot work (a missing
+    /// executable, a bridge that is gone) does not spin, while the first retry still comes quickly.
+    /// </summary>
+    private static TimeSpan RetryDelay(int failures) => failures switch
+    {
+        <= 1 => TimeSpan.FromSeconds(2),
+        2 => TimeSpan.FromSeconds(5),
+        3 => TimeSpan.FromSeconds(10),
+        4 => TimeSpan.FromSeconds(20),
+        _ => TimeSpan.FromSeconds(30)
+    };
+
+    private CancellationToken BeginAttempt()
+    {
+        lock (_attemptGate)
+        {
+            _attemptCts?.Dispose();
+            _attemptCts = new CancellationTokenSource();
+
+            // A restart asked for while the previous attempt was being torn down cancelled a token
+            // nobody was listening to any more. Honouring it here keeps it from being lost.
+            if (_pendingEnd != AttemptEnd.None)
+            {
+                _attemptCts.Cancel();
+            }
+
+            return _attemptCts.Token;
+        }
+    }
+
+    private void EndAttempt(AttemptEnd end, string? reason)
+    {
+        CancellationTokenSource? attempt;
+
+        lock (_attemptGate)
+        {
+            if (end >= _pendingEnd)
+            {
+                _pendingEnd = end;
+                _pendingReason = reason;
+            }
+
+            attempt = _attemptCts;
+        }
+
+        try
+        {
+            attempt?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The attempt ended in between; BeginAttempt picks the pending end up instead.
+        }
+    }
+
+    private (AttemptEnd End, string? Reason) TakeAttemptEnd()
+    {
+        lock (_attemptGate)
+        {
+            var result = (_pendingEnd, _pendingReason);
+            _pendingEnd = AttemptEnd.None;
+            _pendingReason = null;
+            return result;
+        }
+    }
+
+    private void CancelCurrentAttempt()
+    {
+        CancellationTokenSource? attempt;
+
+        lock (_attemptGate)
+        {
+            attempt = _attemptCts;
+        }
+
+        try
+        {
+            attempt?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already gone, which is what was wanted.
+        }
+    }
+
+    private CancellationToken CurrentAttemptToken()
+    {
+        lock (_attemptGate)
+        {
+            try
+            {
+                return _attemptCts?.Token ?? CancellationToken.None;
+            }
+            catch (ObjectDisposedException)
+            {
+                return CancellationToken.None;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ one attempt
+
+    /// <summary>
+    /// Brings a session up and keeps it running until it stops carrying traffic, in which case it
+    /// throws, or until the attempt is cancelled.
+    /// </summary>
+    private async Task RunSessionAsync(CancellationToken token)
+    {
+        _exit = null;
+        _bootstrapProgress = 0;
+        _bootstrapSummary = null;
+        SetState(VpnState.Preparing, null);
+
+        ChildProcessRegistry.KillLeftovers();
+        PayloadExtractor.EnsureExtracted();
+
+        // Resolved per attempt so a tool installed or updated since the last session is used.
+        var binaries = Binaries.Resolve();
+        foreach (var line in binaries.Describe())
+        {
+            Log.App(line);
+        }
+
+        var excluded = ExclusionList.Read();
+        if (excluded.Count > 0)
+        {
+            Log.App($"Excluded from the tunnel: {string.Join(", ", excluded)}");
+        }
+
+        ApplyKillSwitchSetting(binaries, excluded);
+
+        token.ThrowIfCancellationRequested();
+
+        _tor = new TorRunner(_job);
+        _tor.BootstrapChanged += OnBootstrapChanged;
+        _tor.Exited += OnTorExited;
+        _tor.ProcessStarted = pid =>
+            _killSwitch.PermitProcessTreeAsync(pid, TimeSpan.FromSeconds(6), token);
+
+        SetState(VpnState.Bootstrapping, null);
+        await _tor.StartAsync(Settings, binaries, token).ConfigureAwait(false);
+        await _tor.WaitForBootstrapAsync(token).ConfigureAwait(false);
+
+        Log.App("Tor finished bootstrapping");
+
+        var endpoints = _tor.Endpoints
+            ?? throw new InvalidOperationException("Tor started without resolving its ports.");
+
+        SetState(VpnState.EstablishingTunnel, null);
+
+        // Read the machine's resolvers before the TUN takes over, otherwise the answer is the
+        // tunnel's own address.
+        var upstreamDns = NetworkProbe.GetUpstreamDnsServers();
+        Log.App($"Upstream DNS for excluded traffic: {string.Join(", ", upstreamDns)}");
+        Log.App($"Default interface before the tunnel: {NetworkProbe.GetDefaultInterfaceName() ?? "unknown"}");
+
+        _singBox = new SingBoxRunner(_job);
+        _singBox.Exited += OnSingBoxExited;
+        await _singBox.StartAsync(Settings, binaries, endpoints, excluded, upstreamDns, token).ConfigureAwait(false);
+
+        // Let traffic out again, but only through the tunnel adapter.
+        if (_killSwitch.IsArmed)
+        {
+            var index = NetworkProbe.GetInterfaceIndex(Settings.TunInterfaceName);
+            if (index is null)
+            {
+                throw new InvalidOperationException(
+                    $"The tunnel adapter {Settings.TunInterfaceName} has no interface index, so the kill switch " +
+                    "cannot be opened for it. Traffic would stay blocked.");
+            }
+
+            _killSwitch.OpenTunnel(index.Value);
+        }
+
+        token.ThrowIfCancellationRequested();
+
+        _consecutiveFailures = 0;
+        SetState(VpnState.Connected, null);
+
+        StartStatsLoop(token);
+        _ = VerifyTunnelAsync(endpoints, token);
+
+        // Now that there is a connection, the bridge list can be refreshed from inside it. It
+        // is never fetched before this point, because doing so would name the Tor Project on an
+        // unprotected connection, which is what a bridge exists to avoid.
+        _ = BridgeProvider.RefreshThroughTorAsync(Settings, endpoints.SocksPort, token);
+
+        await MonitorHealthAsync(token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Puts the block on when the setting asks for it, and takes a block that is no longer wanted
+    /// back off. Checked at the start of every attempt, so changing the setting takes effect the next
+    /// time the session starts over.
+    /// </summary>
+    private void ApplyKillSwitchSetting(Binaries binaries, IReadOnlyList<string> excluded)
+    {
+        if (Settings.KillSwitch)
+        {
+            // The block goes on before Tor even starts. Everything except Tor's own processes and
+            // the excluded applications is cut off from here until the tunnel is up, and stays cut
+            // off if it later drops.
+            if (!_killSwitch.Arm(KillSwitchGuard.BuildPermitList(binaries, excluded)))
+            {
+                Log.App("The kill switch could not be armed; continuing without it");
+            }
+
+            return;
+        }
+
+        if (_killSwitch.IsArmed)
+        {
+            Log.App("The kill switch setting is off; removing the block");
+            _killSwitch.Disarm();
+        }
+    }
+
+    /// <summary>
+    /// Watches a live session and returns control to the supervisor, by throwing, the moment it
+    /// stops carrying traffic.
+    ///
+    /// Without this the application reported Connected for as long as it was left alone. On one run
+    /// the underlying network went away four minutes after connecting; Tor could no longer reach a
+    /// single relay, and the session sat there showing green for four hours and forty minutes while
+    /// nothing worked. Tor knows whether it has a usable circuit, so it is asked.
+    /// </summary>
+    private async Task MonitorHealthAsync(CancellationToken cancellationToken)
+    {
+        var consecutiveFailures = 0;
+
+        while (true)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+
+            // Asking Tor is not enough on its own. When the machine loses its address the adapter
+            // stays up, Tor keeps reporting an established circuit from the ones it already had, and
+            // the session sits there green while nothing reaches the network. sing-box notices
+            // immediately, because every connection it tries to open has nowhere to go, so its
+            // complaint is counted and treated as the failure it is.
+            var routeFailures = _singBox?.TakeRouteFailures() ?? 0;
+
+            if (routeFailures >= RouteFailuresBeforeGivingUp)
+            {
+                throw new InvalidOperationException(
+                    $"The tunnel has no way out to the network ({routeFailures} failed connection(s) " +
+                    "in the last fifteen seconds).");
+            }
+
+            var control = _tor?.Control;
+
+            var healthy = control is { IsConnected: true } &&
+                          await control.GetInfoAsync("status/circuit-established", cancellationToken)
+                              .ConfigureAwait(false) == "1";
+
+            if (healthy)
+            {
+                if (consecutiveFailures > 0)
+                {
+                    Log.App("Tor has a usable circuit again");
+                }
+
+                consecutiveFailures = 0;
+                continue;
+            }
+
+            consecutiveFailures++;
+            Log.App($"Tor reports no usable circuit ({consecutiveFailures} check(s) in a row)");
+
+            if (consecutiveFailures >= HealthFailuresBeforeGivingUp)
+            {
+                throw new InvalidOperationException("The connection stopped carrying traffic.");
+            }
+        }
+    }
+
+    /// <summary>Three checks fifteen seconds apart, so a brief hiccup is not treated as a failure.</summary>
+    private const int HealthFailuresBeforeGivingUp = 3;
+
+    /// <summary>
+    /// A single relay that cannot be reached is normal and produces one of these. A machine with no
+    /// route produces hundreds a minute, so the line between the two is not a fine one.
+    /// </summary>
+    private const int RouteFailuresBeforeGivingUp = 10;
 
     /// <summary>
     /// Confirms that traffic really is flowing through the tunnel, and explains it when it is not.
@@ -576,7 +746,7 @@ public sealed class VpnService : IAsyncDisposable
             if (_exit is null)
             {
                 Log.App("Neither the direct path nor Tor's SOCKS port could reach the internet yet");
-                SetState(VpnState.Connected, TunnelUnverifiedMessage);
+                SetConnectedMessage(TunnelUnverifiedMessage, cancellationToken);
                 return;
             }
 
@@ -589,7 +759,7 @@ public sealed class VpnService : IAsyncDisposable
                 Log.App(cause);
             }
 
-            SetState(VpnState.Connected, cause ?? TunnelBlockedMessage);
+            SetConnectedMessage(cause ?? TunnelBlockedMessage, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -599,6 +769,21 @@ public sealed class VpnService : IAsyncDisposable
         {
             Log.Error("Verifying the tunnel failed", ex);
         }
+    }
+
+    /// <summary>
+    /// Attaches a warning to the Connected state, unless the session has already moved on. The
+    /// verification runs in the background, and reporting Connected over a session that is being
+    /// torn down would put a green light on a tunnel that no longer exists.
+    /// </summary>
+    private void SetConnectedMessage(string message, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested || State != VpnState.Connected)
+        {
+            return;
+        }
+
+        SetState(VpnState.Connected, message);
     }
 
     private const string TunnelUnverifiedMessage =
@@ -637,14 +822,7 @@ public sealed class VpnService : IAsyncDisposable
                 Log.App($"Tunnel verification attempt {attempt + 1} failed: {ex.GetType().Name}: {ex.Message}");
             }
 
-            try
-            {
-                await Task.Delay(4000, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
+            await Task.Delay(4000, cancellationToken).ConfigureAwait(false);
         }
 
         return false;
@@ -663,7 +841,7 @@ public sealed class VpnService : IAsyncDisposable
             var info = await ExitIpChecker.QueryAsync(endpoints.SocksPort, _tor?.Control, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (info is not null)
+            if (info is not null && !cancellationToken.IsCancellationRequested)
             {
                 _exit = info;
                 RaiseStatus();
@@ -735,7 +913,15 @@ public sealed class VpnService : IAsyncDisposable
                 catch (Exception ex)
                 {
                     Log.Error("Reading the traffic counters failed", ex);
-                    await Task.Delay(5000, CancellationToken.None).ConfigureAwait(false);
+
+                    try
+                    {
+                        await Task.Delay(5000, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
                 }
             }
         }, CancellationToken.None);
@@ -754,73 +940,24 @@ public sealed class VpnService : IAsyncDisposable
 
     private void OnTorExited(int exitCode)
     {
-        if (State is VpnState.Disconnecting or VpnState.Disconnected)
-        {
-            return;
-        }
-
         Log.App($"Tor stopped unexpectedly (exit code {exitCode})");
-
-        _ = Task.Run(async () =>
-        {
-            var keepBlocking = _killSwitch.IsArmed;
-            await TearDownAsync(disarmKillSwitch: !keepBlocking).ConfigureAwait(false);
-
-            if (keepBlocking)
-            {
-                SetState(VpnState.Interrupted, null);
-                ScheduleReconnect();
-            }
-            else
-            {
-                SetState(VpnState.Failed, $"Tor stopped unexpectedly (exit code {exitCode}).");
-            }
-        });
+        EndAttempt(AttemptEnd.Failure, $"Tor stopped unexpectedly (exit code {exitCode}).");
     }
 
     private void OnSingBoxExited(int exitCode)
     {
-        if (State is VpnState.Disconnecting or VpnState.Disconnected)
-        {
-            return;
-        }
-
-        // While the tunnel is still being set up, StartAsync already turns this into an exception
-        // and the connect path handles it. Reacting here as well would run a second teardown
-        // alongside the first.
-        if (State is VpnState.EstablishingTunnel or VpnState.Preparing or VpnState.Bootstrapping)
-        {
-            Log.App($"The tunnel exited while starting (exit code {exitCode}); the connect path is handling it");
-            return;
-        }
-
         Log.App($"The tunnel stopped unexpectedly (exit code {exitCode})");
-
-        _ = Task.Run(async () =>
-        {
-            var keepBlocking = _killSwitch.IsArmed;
-            await TearDownAsync(disarmKillSwitch: !keepBlocking).ConfigureAwait(false);
-
-            if (keepBlocking)
-            {
-                SetState(VpnState.Interrupted, null);
-                ScheduleReconnect();
-            }
-            else
-            {
-                SetState(VpnState.Failed, $"The tunnel stopped unexpectedly (exit code {exitCode}).");
-            }
-        });
+        EndAttempt(AttemptEnd.Failure, $"The tunnel stopped unexpectedly (exit code {exitCode}).");
     }
 
-    private readonly SemaphoreSlim _teardownGate = new(1, 1);
+    // ------------------------------------------------------------------ teardown
 
     /// <summary>
-    /// Brings the session down. Serialized because it can be reached from the connect path and from
-    /// a child process exiting at the same time, and two teardowns racing each other used to trip
-    /// over the half-disposed control connection.
+    /// Brings the session down and leaves the kill switch exactly as it is. Serialized because it
+    /// can be reached from the supervisor and from stopping at the same time, and two teardowns
+    /// racing each other used to trip over the half-disposed control connection.
     /// </summary>
-    private async Task TearDownAsync(bool disarmKillSwitch)
+    private async Task TearDownSessionAsync()
     {
         await _teardownGate.WaitAsync().ConfigureAwait(false);
 
@@ -831,11 +968,6 @@ public sealed class VpnService : IAsyncDisposable
             _killSwitch.CloseTunnel();
 
             await TearDownCoreAsync().ConfigureAwait(false);
-
-            if (disarmKillSwitch)
-            {
-                _killSwitch.Disarm();
-            }
         }
         finally
         {
@@ -845,40 +977,29 @@ public sealed class VpnService : IAsyncDisposable
 
     private async Task TearDownCoreAsync()
     {
-        try
-        {
-            if (_sessionCts is not null)
-            {
-                await _sessionCts.CancelAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Cancelling the session failed", ex);
-        }
-
         // The tunnel goes first: while it is up the routes are in place, so nothing can escape
         // during the window where Tor is already gone.
-        if (_singBox is not null)
+        var singBox = Interlocked.Exchange(ref _singBox, null);
+        if (singBox is not null)
         {
-            _singBox.Exited -= OnSingBoxExited;
-            await _singBox.DisposeAsync().ConfigureAwait(false);
-            _singBox = null;
+            singBox.Exited -= OnSingBoxExited;
+            await singBox.DisposeAsync().ConfigureAwait(false);
         }
 
-        if (_tor is not null)
+        var tor = Interlocked.Exchange(ref _tor, null);
+        if (tor is not null)
         {
-            _tor.BootstrapChanged -= OnBootstrapChanged;
-            _tor.Exited -= OnTorExited;
-            await _tor.DisposeAsync().ConfigureAwait(false);
-            _tor = null;
+            tor.BootstrapChanged -= OnBootstrapChanged;
+            tor.Exited -= OnTorExited;
+            await tor.DisposeAsync().ConfigureAwait(false);
         }
 
-        if (_statsTask is not null)
+        var statsTask = Interlocked.Exchange(ref _statsTask, null);
+        if (statsTask is not null)
         {
             try
             {
-                await _statsTask.WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                await statsTask.WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
             {
@@ -888,16 +1009,7 @@ public sealed class VpnService : IAsyncDisposable
             {
                 Log.Error("Waiting for the statistics loop failed", ex);
             }
-
-            _statsTask = null;
         }
-
-        // Not awaited: the health loop is what calls AbortAsync, which reaches here, so waiting for
-        // it to finish would be waiting for this method to return.
-        _healthTask = null;
-
-        _sessionCts?.Dispose();
-        _sessionCts = null;
 
         // The bridge names were only put in the hosts file so the transports could start without
         // asking the network. Nothing needs them once the session is over.
@@ -935,10 +1047,18 @@ public sealed class VpnService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await TearDownAsync(disarmKillSwitch: true).ConfigureAwait(false);
+        try
+        {
+            await StopSupervisorAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Stopping the session during shutdown failed", ex);
+        }
+
         _killSwitch.Dispose();
         _job.Dispose();
-        _transitionGate.Dispose();
+        _commandGate.Dispose();
         _teardownGate.Dispose();
     }
 }
