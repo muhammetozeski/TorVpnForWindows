@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <Compile Include="$(AppDir)\Core\KillSwitchGuard.cs" />
+    <Compile Include="$(AppDir)\Core\WfpSession.cs" />
     <Compile Include="$(AppDir)\Core\BinaryResolver.cs" />
     <Compile Include="$(AppDir)\Core\Binaries.cs" />
     <Compile Include="$(AppDir)\Core\AppPaths.cs" />
