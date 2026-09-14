@@ -257,13 +257,15 @@ public sealed partial class TorRunner : IAsyncDisposable
 
         var control = Interlocked.Exchange(ref _control, null);
         var process = Interlocked.Exchange(ref _process, null);
+        var halted = false;
 
         if (control is not null)
         {
             try
             {
                 // A clean shutdown lets Tor flush its state; the process exits on its own.
-                await control.SendAsync("SIGNAL HALT").ConfigureAwait(false);
+                var reply = await control.SendAsync("SIGNAL HALT").ConfigureAwait(false);
+                halted = reply.IsOk;
             }
             catch (Exception ex)
             {
@@ -289,7 +291,16 @@ public sealed partial class TorRunner : IAsyncDisposable
         {
             if (!process.HasExited)
             {
-                if (!process.WaitForExit(3000))
+                // Waiting only makes sense for a Tor that was asked to stop. One stopped before its
+                // control connection existed, which is what a restart during startup does, was never
+                // asked, and the three seconds used to be spent waiting for nothing.
+                if (!halted)
+                {
+                    Log.App("Killing tor.exe, it could not be asked to stop");
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(3000);
+                }
+                else if (!process.WaitForExit(3000))
                 {
                     Log.App("tor.exe did not stop on request, killing it");
                     process.Kill(entireProcessTree: true);
