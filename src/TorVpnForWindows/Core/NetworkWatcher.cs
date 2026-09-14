@@ -5,14 +5,20 @@ using System.Net.Sockets;
 namespace TorVpnForWindows.Core;
 
 /// <summary>
-/// Notices when the machine's real network changes: an adapter gets an address and a gateway, loses
-/// them, or gets different ones.
+/// Notices when the machine's real network changes in a way that breaks Tor's connections: a
+/// network becomes usable where there was none, or an address or gateway that was in use goes away,
+/// even for a moment.
 ///
 /// Tor does not notice this by itself in time. A bridge that failed while there was no network is
 /// retried on Tor's own schedule, and on 14.09.2026 a session started with the Wi-Fi off made no
 /// attempt at all for the minute after the Wi-Fi came up. The same morning the phone's hotspot
 /// dropped twice within a minute of joining, and each drop killed whatever Tor was trying at that
 /// moment. Starting the session over when the network settles is what gets it going again.
+///
+/// Something only being added is not reported. Joining a network brings its IPv4 address first and
+/// its IPv6 gateway a few seconds later, and plugging in a cable adds a second adapter; neither
+/// breaks a connection Tor already has, and starting over for each would only slow the first
+/// connect down.
 ///
 /// The tunnel adapter is left out of the picture, so bringing the tunnel up or down does not look
 /// like a network change. So are IPv6 addresses, which Windows rotates on its own schedule; their
@@ -31,20 +37,20 @@ public sealed class NetworkWatcher : IDisposable
     private readonly Lock _gate = new();
     private readonly Timer _timer;
 
-    private string _baseline;
-    private bool _disturbed;
+    private HashSet<string> _baseline;
+    private bool _lostSomething;
     private bool _disposed;
 
     /// <summary>
-    /// Raised once the network has settled after a change, off the UI thread. The argument says
-    /// whether a usable network is present now.
+    /// Raised once the network has settled after a change that breaks connections, off the UI thread.
+    /// The argument says whether a usable network is present now.
     /// </summary>
     public event Action<bool>? Changed;
 
     public NetworkWatcher(Func<string> tunnelName)
     {
         _tunnelName = tunnelName;
-        _baseline = Fingerprint();
+        _baseline = Snapshot();
         _timer = new Timer(OnSettled, null, Timeout.Infinite, Timeout.Infinite);
 
         NetworkChange.NetworkAddressChanged += OnNetworkEvent;
@@ -52,7 +58,7 @@ public sealed class NetworkWatcher : IDisposable
     }
 
     /// <summary>Whether any real adapter has an address and a gateway to send traffic through.</summary>
-    public bool HasUsableNetwork => Fingerprint().Length > 0;
+    public bool HasUsableNetwork => Snapshot().Count > 0;
 
     private void OnAvailabilityEvent(object? sender, NetworkAvailabilityEventArgs e) => OnNetworkEvent(sender, e);
 
@@ -60,7 +66,7 @@ public sealed class NetworkWatcher : IDisposable
     {
         try
         {
-            var now = Fingerprint();
+            var now = Snapshot();
 
             lock (_gate)
             {
@@ -70,10 +76,10 @@ public sealed class NetworkWatcher : IDisposable
                 }
 
                 // A drop that comes back with the same address inside the settle time still broke
-                // every connection Tor had open on it, so the dip itself counts as a change.
-                if (!string.Equals(now, _baseline, StringComparison.Ordinal))
+                // every connection Tor had open on it, so the dip itself counts.
+                if (_baseline.Any(atom => !now.Contains(atom)))
                 {
-                    _disturbed = true;
+                    _lostSomething = true;
                 }
 
                 _timer.Change(SettleTime, Timeout.InfiniteTimeSpan);
@@ -92,7 +98,7 @@ public sealed class NetworkWatcher : IDisposable
 
         try
         {
-            var now = Fingerprint();
+            var now = Snapshot();
 
             lock (_gate)
             {
@@ -101,8 +107,11 @@ public sealed class NetworkWatcher : IDisposable
                     return;
                 }
 
-                changed = _disturbed || !string.Equals(now, _baseline, StringComparison.Ordinal);
-                usable = now.Length > 0;
+                var lost = _lostSomething || _baseline.Any(atom => !now.Contains(atom));
+                var arrived = _baseline.Count == 0 && now.Count > 0;
+
+                changed = lost || arrived;
+                usable = now.Count > 0;
 
                 if (changed)
                 {
@@ -110,7 +119,7 @@ public sealed class NetworkWatcher : IDisposable
                 }
 
                 _baseline = now;
-                _disturbed = false;
+                _lostSomething = false;
             }
         }
         catch (Exception ex)
@@ -135,13 +144,13 @@ public sealed class NetworkWatcher : IDisposable
     }
 
     /// <summary>
-    /// One line per adapter that can carry traffic: its identity, its IPv4 addresses and its
-    /// gateways. Empty when there is no such adapter.
+    /// Every IPv4 address, IPv4 gateway and IPv6 gateway of the adapters that can carry traffic, one
+    /// entry each, tagged with the adapter. Empty when there is no such adapter.
     /// </summary>
-    private string Fingerprint()
+    private HashSet<string> Snapshot()
     {
         var tunnel = _tunnelName();
-        var parts = new List<string>();
+        var atoms = new HashSet<string>(StringComparer.Ordinal);
 
         NetworkInterface[] adapters;
 
@@ -152,7 +161,7 @@ public sealed class NetworkWatcher : IDisposable
         catch (NetworkInformationException ex)
         {
             Log.Error("Listing the network adapters failed", ex);
-            return string.Empty;
+            return atoms;
         }
 
         foreach (var nic in adapters)
@@ -171,22 +180,16 @@ public sealed class NetworkWatcher : IDisposable
                 var gateways4 = properties.GatewayAddresses
                     .Select(g => g.Address)
                     .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !a.Equals(IPAddress.Any))
-                    .Select(a => a.ToString())
-                    .Order(StringComparer.Ordinal)
                     .ToArray();
 
                 var gateways6 = properties.GatewayAddresses
                     .Select(g => g.Address)
                     .Where(a => a.AddressFamily == AddressFamily.InterNetworkV6 && !a.Equals(IPAddress.IPv6Any))
-                    .Select(a => a.ToString())
-                    .Order(StringComparer.Ordinal)
                     .ToArray();
 
                 var addresses4 = properties.UnicastAddresses
                     .Select(u => u.Address)
                     .Where(a => a.AddressFamily == AddressFamily.InterNetwork)
-                    .Select(a => a.ToString())
-                    .Order(StringComparer.Ordinal)
                     .ToArray();
 
                 var hasGlobal6 = properties.UnicastAddresses
@@ -194,18 +197,22 @@ public sealed class NetworkWatcher : IDisposable
                     .Any(a => a.AddressFamily == AddressFamily.InterNetworkV6 &&
                               !a.IsIPv6LinkLocal && !a.IsIPv6SiteLocal && !IPAddress.IsLoopback(a));
 
-                var usable4 = gateways4.Length > 0 && addresses4.Length > 0;
-                var usable6 = gateways6.Length > 0 && hasGlobal6;
-
                 // An adapter with no gateway is not carrying internet traffic: a virtual switch, a
                 // cable to another machine, a Wi-Fi that has associated but not yet got an address.
-                if (!usable4 && !usable6)
+                if (!(gateways4.Length > 0 && addresses4.Length > 0) && !(gateways6.Length > 0 && hasGlobal6))
                 {
                     continue;
                 }
 
-                parts.Add(
-                    $"{nic.Name}|{nic.Id}|{string.Join(",", addresses4)}|{string.Join(",", gateways4)}|{string.Join(",", gateways6)}");
+                foreach (var address in addresses4)
+                {
+                    atoms.Add($"{nic.Name}|address|{address}");
+                }
+
+                foreach (var gateway in gateways4.Concat(gateways6))
+                {
+                    atoms.Add($"{nic.Name}|gateway|{gateway}");
+                }
             }
             catch (NetworkInformationException)
             {
@@ -213,26 +220,12 @@ public sealed class NetworkWatcher : IDisposable
             }
         }
 
-        parts.Sort(StringComparer.Ordinal);
-        return string.Join(";", parts);
+        return atoms;
     }
 
-    /// <summary>The fingerprint without the adapter identifiers, which only clutter the log.</summary>
-    private static string Describe(string fingerprint)
-    {
-        if (fingerprint.Length == 0)
-        {
-            return "no network";
-        }
-
-        return string.Join("; ", fingerprint.Split(';').Select(part =>
-        {
-            var fields = part.Split('|');
-            return fields.Length >= 5
-                ? $"{fields[0]} {fields[2]} via {fields[3]}{(fields[4].Length > 0 ? $" / {fields[4]}" : string.Empty)}"
-                : part;
-        }));
-    }
+    private static string Describe(HashSet<string> atoms) => atoms.Count == 0
+        ? "no network"
+        : string.Join(", ", atoms.Order(StringComparer.Ordinal).Select(atom => atom.Replace('|', ' ')));
 
     public void Dispose()
     {
