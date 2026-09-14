@@ -62,13 +62,16 @@ public sealed class KillSwitchGuard : IDisposable
     private const byte WeightPermitTunnel = 9;
     private const byte WeightPermitApp = 12;
 
-    private readonly Guid _subLayerKey = Guid.NewGuid();
     private readonly List<ulong> _tunnelFilterIds = [];
     private readonly Lock _gate = new();
 
+    private Guid _subLayerKey = Guid.NewGuid();
     private nint _engine;
     private bool _armed;
     private bool _disposed;
+
+    /// <summary>What the filters in place were built from, so a changed list rebuilds them.</summary>
+    private string? _armedConfiguration;
 
     /// <summary>True while everything except the permitted traffic is blocked.</summary>
     public bool IsArmed
@@ -85,27 +88,56 @@ public sealed class KillSwitchGuard : IDisposable
     /// <summary>
     /// Starts blocking. Traffic from the given executables is permitted so Tor itself can reach the
     /// network and build the circuits the rest of the machine is waiting for.
+    ///
+    /// Arming again with a different configuration rebuilds the filters. The new set goes in before
+    /// the old one comes out, so a changed list never opens a gap.
     /// </summary>
-    public bool Arm(IReadOnlyList<string> permittedExecutables)
+    /// <param name="blockOnly">
+    /// Null blocks everything that is not permitted. A list blocks only those executables instead:
+    /// that is the tunnel white list, where only the listed programs belong to Tor and every other
+    /// program leaves through the normal connection whether Tor is up or not.
+    /// </param>
+    public bool Arm(IReadOnlyList<string> permittedExecutables, IReadOnlyList<string>? blockOnly = null)
     {
         lock (_gate)
         {
-            if (_armed)
+            var configuration = DescribeConfiguration(permittedExecutables, blockOnly);
+
+            if (_armed && configuration == _armedConfiguration)
             {
                 return true;
             }
 
+            var previousEngine = _engine;
+            var previousSubLayer = _subLayerKey;
+            var wasArmed = _armed;
+
             try
             {
                 VerifyStructureSizes();
+
+                // A fresh session for the new set, so the previous one keeps blocking until this
+                // one is complete.
+                _engine = nint.Zero;
+                _subLayerKey = Guid.NewGuid();
 
                 OpenEngine();
                 AddSubLayer();
 
                 // Order does not matter to WFP, only weight, but the block goes in first so a
                 // failure part way through leaves the machine blocked rather than half open.
-                AddBlockFilter(LayerAleAuthConnectV4, "block all IPv4");
-                AddBlockFilter(LayerAleAuthConnectV6, "block all IPv6");
+                if (blockOnly is null)
+                {
+                    AddBlockFilter(LayerAleAuthConnectV4, "block all IPv4");
+                    AddBlockFilter(LayerAleAuthConnectV6, "block all IPv6");
+                }
+                else
+                {
+                    foreach (var executable in blockOnly)
+                    {
+                        AddApplicationBlock(executable);
+                    }
+                }
 
                 AddLoopbackPermit(LayerAleAuthConnectV4, "permit IPv4 loopback");
                 AddLoopbackPermit(LayerAleAuthConnectV6, "permit IPv6 loopback");
@@ -128,27 +160,59 @@ public sealed class KillSwitchGuard : IDisposable
                     AddApplicationPermit(executable);
                 }
 
+                // Only now does the previous set go. Closing a dynamic session removes its filters.
+                if (previousEngine != nint.Zero)
+                {
+                    var closed = FwpmEngineClose0(previousEngine);
+                    if (closed != ErrorSuccess)
+                    {
+                        Log.App($"FwpmEngineClose0 for the previous filters returned 0x{closed:X8}");
+                    }
+                }
+
+                _tunnelFilterIds.Clear();
                 _armed = true;
-                Log.App($"Kill switch armed; {permittedExecutables.Count} executable(s) permitted");
+                _armedConfiguration = configuration;
+
+                Log.App(blockOnly is null
+                    ? $"Kill switch {(wasArmed ? "rebuilt" : "armed")}; {permittedExecutables.Count} executable(s) permitted"
+                    : $"Kill switch {(wasArmed ? "rebuilt" : "armed")} for the tunnel white list; " +
+                      $"{blockOnly.Count} executable(s) kept to the tunnel, {permittedExecutables.Count} permitted");
+
                 return true;
             }
             catch (Exception ex)
             {
                 Log.Error("Arming the kill switch failed", ex);
 
+                // Discard the half-built set. A previous set that was blocking stays exactly as it
+                // was: failing to change the lists must not take the protection down.
                 try
                 {
-                    DisarmCore();
+                    if (_engine != nint.Zero && _engine != previousEngine)
+                    {
+                        FwpmEngineClose0(_engine);
+                    }
                 }
                 catch (Exception cleanupEx)
                 {
                     Log.Error("Cleaning up after a failed arm also failed", cleanupEx);
                 }
 
-                return false;
+                _engine = previousEngine;
+                _subLayerKey = previousSubLayer;
+                _armed = wasArmed;
+
+                return wasArmed;
             }
         }
     }
+
+    private static string DescribeConfiguration(IReadOnlyList<string> permitted, IReadOnlyList<string>? blockOnly) =>
+        string.Join("|", permitted.Select(p => p.ToUpperInvariant()).Order(StringComparer.Ordinal)) + "#" +
+        (blockOnly is null
+            ? "all"
+            : string.Join("|", blockOnly.Select(p => p.ToUpperInvariant()).Order(StringComparer.Ordinal)));
 
     /// <summary>
     /// Opens the block for the tunnel adapter once it exists. Called when the tunnel comes up, and
@@ -492,6 +556,45 @@ public sealed class KillSwitchGuard : IDisposable
         return AddFilter(layer, ActionPermit, WeightPermitTunnel, description, [condition]);
     }
 
+    /// <summary>
+    /// Blocks one executable everywhere except where a heavier permit applies: loopback, and the
+    /// tunnel adapter once it is open. Used for the tunnel white list.
+    /// </summary>
+    private void AddApplicationBlock(string executablePath)
+    {
+        if (!File.Exists(executablePath))
+        {
+            // Nothing can run from a path with no file behind it; the next arm picks it up if the
+            // program comes back.
+            return;
+        }
+
+        var result = FwpmGetAppIdFromFileName0(executablePath, out var appIdPtr);
+        if (result != ErrorSuccess || appIdPtr == nint.Zero)
+        {
+            throw new InvalidOperationException(
+                $"Could not build an application identifier for {executablePath} (0x{result:X8}), so it cannot be kept to the tunnel.");
+        }
+
+        try
+        {
+            var condition = new FwpmFilterCondition0
+            {
+                FieldKey = ConditionAleAppId,
+                MatchType = MatchEqual,
+                ConditionValue = new FwpConditionValue0 { Type = TypeByteBlob, Value = (ulong)appIdPtr }
+            };
+
+            var name = Path.GetFileName(executablePath);
+            AddFilter(LayerAleAuthConnectV4, ActionBlock, WeightBlock, $"keep {name} to the tunnel (IPv4)", [condition]);
+            AddFilter(LayerAleAuthConnectV6, ActionBlock, WeightBlock, $"keep {name} to the tunnel (IPv6)", [condition]);
+        }
+        finally
+        {
+            FwpmFreeMemory0(ref appIdPtr);
+        }
+    }
+
     private void AddApplicationPermit(string executablePath)
     {
         if (!File.Exists(executablePath))
@@ -640,11 +743,11 @@ public sealed class KillSwitchGuard : IDisposable
     ~KillSwitchGuard() => Dispose();
 
     /// <summary>
-    /// Executables that must keep working while the block is on: Tor and its transports, this
-    /// application, and anything the user listed as excluded from the tunnel. Leaving the excluded
-    /// applications out would block the very programs that were meant to bypass the tunnel.
+    /// Executables that must keep working while the block is on: Tor and its transports, and every
+    /// spelling of the programs the tunnel black list sends around the tunnel. Leaving those out
+    /// would block the very programs that were meant to bypass it.
     /// </summary>
-    public static List<string> BuildPermitList(Binaries binaries, IReadOnlyList<string> excludedProcessNames)
+    public static List<string> BuildPermitList(Binaries binaries, IReadOnlyList<string> tunnelBypassPaths)
     {
         // This application is deliberately not here.
         //
@@ -656,61 +759,11 @@ public sealed class KillSwitchGuard : IDisposable
         // uses is a hole waiting for the next feature to walk through it.
         var list = new List<string> { binaries.Tor.Path, binaries.Lyrebird.Path, binaries.SingBox.Path };
 
-        list.AddRange(ResolveExecutablePaths(excludedProcessNames));
+        // Paths, not names: the permit applies to that file and nothing else, whether or not the
+        // program is running yet.
+        list.AddRange(tunnelBypassPaths);
 
         return list.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-    }
-
-    /// <summary>
-    /// Turns the executable names from the exclusion list into full paths, which is what a filter
-    /// condition needs. Only running processes can be resolved, so an excluded program that is
-    /// started later is picked up on the next connect.
-    /// </summary>
-    private static List<string> ResolveExecutablePaths(IReadOnlyList<string> processNames)
-    {
-        var paths = new List<string>();
-
-        foreach (var name in processNames)
-        {
-            var bare = Path.GetFileNameWithoutExtension(name);
-            if (bare.Length == 0)
-            {
-                continue;
-            }
-
-            try
-            {
-                foreach (var process in Process.GetProcessesByName(bare))
-                {
-                    using (process)
-                    {
-                        try
-                        {
-                            var path = process.MainModule?.FileName;
-                            if (path is not null && !paths.Contains(path, StringComparer.OrdinalIgnoreCase))
-                            {
-                                paths.Add(path);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Log.App($"Could not read the image path of {bare} (PID {process.Id}): {ex.GetType().Name}");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Could not resolve a path for the excluded process {bare}", ex);
-            }
-
-            if (!paths.Any(p => Path.GetFileNameWithoutExtension(p).Equals(bare, StringComparison.OrdinalIgnoreCase)))
-            {
-                Log.App($"Kill switch: {name} is excluded from the tunnel but is not running, so no permit was added for it");
-            }
-        }
-
-        return paths;
     }
 
     // ------------------------------------------------------------------ interop

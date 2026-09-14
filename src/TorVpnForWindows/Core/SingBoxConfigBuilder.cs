@@ -13,8 +13,11 @@ namespace TorVpnForWindows.Core;
 ///     is passed to Tor as a name, so Tor resolves it at the exit and nothing leaks locally.
 ///   * DNS is hijacked into sing-box's resolver, which forwards to Tor's DNSPort.
 ///   * UDP has nowhere to go, because Tor carries TCP only, so it is refused rather than leaked.
-///   * Tor's own process, and anything the user excluded, is sent straight out of the physical
-///     adapter; without that, tor.exe would route its traffic into the tunnel it is providing.
+///   * Tor's own process is sent straight out of the physical adapter; without that, tor.exe would
+///     route its traffic into the tunnel it is providing.
+///   * The tunnel lists decide the rest, by exact executable path. With the black list on, the listed
+///     programs leave through the normal connection and everything else goes through Tor. With the
+///     white list on, only the listed programs go through Tor and everything else leaves normally.
 /// </summary>
 public static class SingBoxConfigBuilder
 {
@@ -56,10 +59,14 @@ public static class SingBoxConfigBuilder
         "fe80::/10"
     ];
 
+    /// <param name="tunnelPaths">
+    /// Every spelling of the executables on the tunnel list in force, with the infrastructure already
+    /// taken out. Empty when the tunnel lists are off.
+    /// </param>
     public static string Build(
         AppSettings settings,
         SessionEndpoints endpoints,
-        IReadOnlyList<string> excludedProcesses,
+        IReadOnlyList<string> tunnelPaths,
         IReadOnlyList<string> upstreamDnsServers,
         IReadOnlyList<string>? resolvedBinaryNames = null,
         bool forceIpv4Only = false)
@@ -68,6 +75,11 @@ public static class SingBoxConfigBuilder
             .Concat(resolvedBinaryNames ?? [])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+        // A list that is on but empty changes nothing for the black list, and for the white list
+        // means nothing at all goes through Tor, which is what it says.
+        var mode = settings.TunnelLists.Mode;
+        var pathPatterns = tunnelPaths.Select(ExecutablePaths.ToGoRegex).ToArray();
 
         var root = new JsonObject
         {
@@ -78,7 +90,7 @@ public static class SingBoxConfigBuilder
                 ["level"] = "warn",
                 ["timestamp"] = false
             },
-            ["dns"] = BuildDns(endpoints, infrastructure, excludedProcesses, upstreamDnsServers),
+            ["dns"] = BuildDns(endpoints, infrastructure, mode, pathPatterns, upstreamDnsServers),
             ["inbounds"] = new JsonArray(BuildTun(settings, forceIpv4Only)),
             ["outbounds"] = new JsonArray(
                 BuildTorOutbound(endpoints),
@@ -87,7 +99,7 @@ public static class SingBoxConfigBuilder
                     ["type"] = "direct",
                     ["tag"] = DirectOutboundTag
                 }),
-            ["route"] = BuildRoute(settings, infrastructure, excludedProcesses)
+            ["route"] = BuildRoute(settings, infrastructure, mode, pathPatterns)
         };
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -96,7 +108,8 @@ public static class SingBoxConfigBuilder
     private static JsonObject BuildDns(
         SessionEndpoints endpoints,
         IReadOnlyList<string> infrastructureProcesses,
-        IReadOnlyList<string> excludedProcesses,
+        ProgramListMode tunnelMode,
+        IReadOnlyList<string> pathPatterns,
         IReadOnlyList<string> upstreamDnsServers)
     {
         var servers = new JsonArray
@@ -127,19 +140,28 @@ public static class SingBoxConfigBuilder
             ["server"] = upstream
         });
 
-        var bypassProcesses = infrastructureProcesses.Concat(excludedProcesses)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
         var rules = new JsonArray
         {
             new JsonObject
             {
-                ["process_name"] = ToJsonArray(bypassProcesses),
+                ["process_name"] = ToJsonArray(infrastructureProcesses),
                 ["action"] = "route",
                 ["server"] = DirectDnsTag
             }
         };
+
+        // Programs the black list sends around the tunnel ask the normal resolver too. Everything
+        // else, including the programs a white list leaves outside, keeps resolving through Tor, so
+        // no name leaves in the clear because of a list.
+        if (tunnelMode == ProgramListMode.Blacklist && pathPatterns.Count > 0)
+        {
+            rules.Add(new JsonObject
+            {
+                ["process_path_regex"] = ToJsonArray(pathPatterns),
+                ["action"] = "route",
+                ["server"] = DirectDnsTag
+            });
+        }
 
         return new JsonObject
         {
@@ -217,7 +239,8 @@ public static class SingBoxConfigBuilder
     private static JsonObject BuildRoute(
         AppSettings settings,
         IReadOnlyList<string> infrastructureProcesses,
-        IReadOnlyList<string> excludedProcesses)
+        ProgramListMode tunnelMode,
+        IReadOnlyList<string> pathPatterns)
     {
         var rules = new JsonArray
         {
@@ -243,11 +266,12 @@ public static class SingBoxConfigBuilder
             }
         };
 
-        if (excludedProcesses.Count > 0)
+        // The black list: these programs leave through the normal connection, UDP included.
+        if (tunnelMode == ProgramListMode.Blacklist && pathPatterns.Count > 0)
         {
             rules.Add(new JsonObject
             {
-                ["process_name"] = ToJsonArray(excludedProcesses),
+                ["process_path_regex"] = ToJsonArray(pathPatterns),
                 ["action"] = "route",
                 ["outbound"] = DirectOutboundTag
             });
@@ -276,18 +300,43 @@ public static class SingBoxConfigBuilder
         // to TCP straight away; dropping it silently would leave them waiting for a timeout.
         // no_drop keeps that behaviour instead of degrading to silent drops under load, which
         // matters for QUIC-heavy browsing where the fallback fires constantly.
-        rules.Add(new JsonObject
+        //
+        // With the white list on, only the listed programs are meant for Tor, so only their UDP is
+        // refused. Every other program's UDP leaves normally, like the rest of its traffic.
+        var whitelist = tunnelMode == ProgramListMode.Whitelist;
+
+        var refuseUdp = new JsonObject
         {
             ["network"] = "udp",
             ["action"] = "reject",
             ["method"] = "default",
             ["no_drop"] = true
-        });
+        };
+
+        if (whitelist)
+        {
+            if (pathPatterns.Count > 0)
+            {
+                refuseUdp["process_path_regex"] = ToJsonArray(pathPatterns);
+                rules.Add(refuseUdp);
+
+                rules.Add(new JsonObject
+                {
+                    ["process_path_regex"] = ToJsonArray(pathPatterns),
+                    ["action"] = "route",
+                    ["outbound"] = TorOutboundTag
+                });
+            }
+        }
+        else
+        {
+            rules.Add(refuseUdp);
+        }
 
         return new JsonObject
         {
             ["rules"] = rules,
-            ["final"] = TorOutboundTag,
+            ["final"] = whitelist ? DirectOutboundTag : TorOutboundTag,
             ["auto_detect_interface"] = true,
             ["default_domain_resolver"] = DirectDnsTag,
 

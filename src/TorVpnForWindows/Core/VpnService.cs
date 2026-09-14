@@ -178,9 +178,9 @@ public sealed class VpnService : IAsyncDisposable
             PayloadExtractor.EnsureExtracted();
 
             var binaries = Binaries.Resolve();
-            var excluded = ExclusionList.Read();
+            var tunnel = TunnelListPaths(Settings, binaries);
 
-            if (!_killSwitch.Arm(KillSwitchGuard.BuildPermitList(binaries, excluded)))
+            if (!_killSwitch.Arm(KillSwitchGuard.BuildPermitList(binaries, tunnel.Bypass), tunnel.KeepToTunnel))
             {
                 Log.App("The kill switch could not be armed at startup; traffic is not being blocked");
                 return false;
@@ -573,13 +573,15 @@ public sealed class VpnService : IAsyncDisposable
             Log.App(line);
         }
 
-        var excluded = ExclusionList.Read();
-        if (excluded.Count > 0)
+        var tunnel = TunnelListPaths(Settings, binaries);
+        Log.App(ProgramListRules.Describe("Tunnel lists", Settings.TunnelLists));
+
+        foreach (var path in tunnel.Paths)
         {
-            Log.App($"Excluded from the tunnel: {string.Join(", ", excluded)}");
+            Log.App($"    {path}");
         }
 
-        ApplyKillSwitchSetting(binaries, excluded);
+        ApplyKillSwitchSetting(binaries, tunnel);
 
         await WaitForNetworkAsync(token).ConfigureAwait(false);
 
@@ -608,7 +610,7 @@ public sealed class VpnService : IAsyncDisposable
 
         _singBox = new SingBoxRunner(_job);
         _singBox.Exited += OnSingBoxExited;
-        await _singBox.StartAsync(Settings, binaries, endpoints, excluded, upstreamDns, token).ConfigureAwait(false);
+        await _singBox.StartAsync(Settings, binaries, endpoints, tunnel.Paths, upstreamDns, token).ConfigureAwait(false);
 
         // Let traffic out again, but only through the tunnel adapter.
         if (_killSwitch.IsArmed)
@@ -843,14 +845,15 @@ public sealed class VpnService : IAsyncDisposable
     /// back off. Checked at the start of every attempt, so changing the setting takes effect the next
     /// time the session starts over.
     /// </summary>
-    private void ApplyKillSwitchSetting(Binaries binaries, IReadOnlyList<string> excluded)
+    private void ApplyKillSwitchSetting(Binaries binaries, TunnelPaths tunnel)
     {
         if (Settings.KillSwitch)
         {
-            // The block goes on before Tor even starts. Everything except Tor's own processes and
-            // the excluded applications is cut off from here until the tunnel is up, and stays cut
-            // off if it later drops.
-            if (!_killSwitch.Arm(KillSwitchGuard.BuildPermitList(binaries, excluded)))
+            // The block goes on before Tor even starts. Everything that belongs to Tor is cut off
+            // from here until the tunnel is up, and stays cut off if it later drops: with the black
+            // list that is every program except the listed ones, with the white list only the
+            // listed ones. A block already in place for different lists is rebuilt.
+            if (!_killSwitch.Arm(KillSwitchGuard.BuildPermitList(binaries, tunnel.Bypass), tunnel.KeepToTunnel))
             {
                 Log.App("The kill switch could not be armed; continuing without it");
             }
@@ -863,6 +866,31 @@ public sealed class VpnService : IAsyncDisposable
             Log.App("The kill switch setting is off; removing the block");
             _killSwitch.Disarm();
         }
+    }
+
+    /// <summary>The tunnel list in force, as each enforcing part needs it.</summary>
+    /// <param name="Paths">Every spelling of the listed programs, for the routing rules.</param>
+    /// <param name="Bypass">The programs the kill switch has to let out directly: the black list.</param>
+    /// <param name="KeepToTunnel">
+    /// The programs the kill switch keeps to the tunnel instead of blocking everything: the white
+    /// list. Null when every program belongs to the tunnel.
+    /// </param>
+    private sealed record TunnelPaths(
+        IReadOnlyList<string> Paths,
+        IReadOnlyList<string> Bypass,
+        IReadOnlyList<string>? KeepToTunnel);
+
+    private static TunnelPaths TunnelListPaths(AppSettings settings, Binaries binaries)
+    {
+        var lists = settings.TunnelLists;
+        var paths = ProgramListRules.WithoutInfrastructure(ProgramListRules.SpellingsOf(lists.ActiveEntries), binaries);
+
+        return lists.Mode switch
+        {
+            ProgramListMode.Blacklist => new TunnelPaths(paths, paths, null),
+            ProgramListMode.Whitelist => new TunnelPaths(paths, [], paths),
+            _ => new TunnelPaths([], [], null)
+        };
     }
 
     /// <summary>

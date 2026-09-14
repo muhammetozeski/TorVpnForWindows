@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text;
-using TorVpnForWindows.Config;
 using TorVpnForWindows.Core;
 
 namespace TorVpnForWindows.Tests;
@@ -40,11 +39,9 @@ internal static class Program
             Check("the machine has internet before the test", await CanReachAsync().ConfigureAwait(false), "no connectivity to start with");
 
             AppPaths.EnsureDirectories();
-            ExclusionList.EnsureExists();
 
-            var excluded = ExclusionList.Read();
             var binaries = Binaries.Resolve();
-            var permits = KillSwitchGuard.BuildPermitList(binaries, excluded);
+            var permits = KillSwitchGuard.BuildPermitList(binaries, []);
 
             Console.WriteLine();
             Console.WriteLine("permitted executables:");

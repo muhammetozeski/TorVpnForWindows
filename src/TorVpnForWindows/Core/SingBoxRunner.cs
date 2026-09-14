@@ -39,7 +39,7 @@ public sealed class SingBoxRunner : IAsyncDisposable
         AppSettings settings,
         Binaries binaries,
         SessionEndpoints endpoints,
-        IReadOnlyList<string> excludedProcesses,
+        IReadOnlyList<string> tunnelPaths,
         IReadOnlyList<string> upstreamDnsServers,
         CancellationToken cancellationToken)
     {
@@ -65,7 +65,7 @@ public sealed class SingBoxRunner : IAsyncDisposable
         // IPv4-only one is used only when that specific step is what failed.
         try
         {
-            await StartOnceAsync(settings, binaries, endpoints, excludedProcesses, upstreamDnsServers,
+            await StartOnceAsync(settings, binaries, endpoints, tunnelPaths, upstreamDnsServers,
                 forceIpv4Only: false, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (_ipv6ConfigurationFailed && !cancellationToken.IsCancellationRequested)
@@ -78,7 +78,7 @@ public sealed class SingBoxRunner : IAsyncDisposable
             await NetworkProbe.WaitForAdapterGoneAsync(
                 settings.TunInterfaceName, TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
 
-            await StartOnceAsync(settings, binaries, endpoints, excludedProcesses, upstreamDnsServers,
+            await StartOnceAsync(settings, binaries, endpoints, tunnelPaths, upstreamDnsServers,
                 forceIpv4Only: true, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -87,7 +87,7 @@ public sealed class SingBoxRunner : IAsyncDisposable
         AppSettings settings,
         Binaries binaries,
         SessionEndpoints endpoints,
-        IReadOnlyList<string> excludedProcesses,
+        IReadOnlyList<string> tunnelPaths,
         IReadOnlyList<string> upstreamDnsServers,
         bool forceIpv4Only,
         CancellationToken cancellationToken)
@@ -95,7 +95,7 @@ public sealed class SingBoxRunner : IAsyncDisposable
         var singBoxExe = binaries.SingBox.Path;
 
         var config = SingBoxConfigBuilder.Build(
-            settings, endpoints, excludedProcesses, upstreamDnsServers, binaries.ProcessNames(), forceIpv4Only);
+            settings, endpoints, tunnelPaths, upstreamDnsServers, binaries.ProcessNames(), forceIpv4Only);
         await File.WriteAllTextAsync(AppPaths.SingBoxConfigFile, config, new UTF8Encoding(false), cancellationToken)
             .ConfigureAwait(false);
 

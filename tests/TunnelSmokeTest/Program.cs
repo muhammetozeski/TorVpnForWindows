@@ -101,14 +101,24 @@ internal static class Program
             Say($"    {line}");
         }
 
-        Section("EXCLUSIONS");
+        Section("TUNNEL LISTS");
 
-        ExclusionList.EnsureExists();
-        var excluded = ExclusionList.Read();
-        Say($"excluded: {(excluded.Count == 0 ? "<none>" : string.Join(", ", excluded))}");
-        Check("claude.exe is excluded so the controlling session survives",
-            excluded.Contains("claude.exe", StringComparer.OrdinalIgnoreCase),
-            "claude.exe is missing from exclusions.txt");
+        // The application moves the old exclusion names into the lists at startup; the test does the
+        // same, so a first run on a machine that still has only exclusions.txt behaves like the app.
+        var listSettings = AppSettings.Load();
+        ExclusionMigration.Run(listSettings);
+
+        Say(ProgramListRules.Describe("tunnel lists", listSettings.TunnelLists));
+        foreach (var entry in listSettings.TunnelLists.ActiveEntries)
+        {
+            Say($"    {entry}");
+        }
+
+        Check("claude.exe bypasses the tunnel so the controlling session survives",
+            listSettings.TunnelLists.Mode == ProgramListMode.Blacklist &&
+            listSettings.TunnelLists.Blacklist.Any(path =>
+                Path.GetFileName(path).Equals("claude.exe", StringComparison.OrdinalIgnoreCase)),
+            "no claude.exe path is on the tunnel black list in force");
 
         Section("CONNECT");
 
