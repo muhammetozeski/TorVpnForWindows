@@ -31,6 +31,9 @@ public partial class MainWindow : Window
 
         LogList.ItemsSource = _logEntries;
 
+        InternetListsCard.ListsChanged += OnInternetListsChanged;
+        TunnelListsCard.ListsChanged += OnTunnelListsChanged;
+
         foreach (var entry in Log.Snapshot())
         {
             _logEntries.Add(entry);
@@ -120,9 +123,21 @@ public partial class MainWindow : Window
         AllowLanLabel.Text = Strings.SettingAllowLan;
         AllowLanHint.Text = Strings.SettingAllowLanHint;
 
-        ExclusionsLabel.Text = Strings.SettingExclusions;
-        ExclusionsHint.Text = Strings.SettingExclusionsHint;
-        OpenExclusionsButton.Content = Strings.ExclusionsOpen;
+        InternetListsCard.ApplyTexts(new ProgramListsCard.CardTexts(
+            Strings.SettingInternetLists,
+            Strings.SettingInternetListsHint,
+            Strings.ListWindowInternetWhite,
+            Strings.ListWindowInternetWhiteHint,
+            Strings.ListWindowInternetBlack,
+            Strings.ListWindowInternetBlackHint));
+
+        TunnelListsCard.ApplyTexts(new ProgramListsCard.CardTexts(
+            Strings.SettingTunnelLists,
+            Strings.SettingTunnelListsHint,
+            Strings.ListWindowTunnelWhite,
+            Strings.ListWindowTunnelWhiteHint,
+            Strings.ListWindowTunnelBlack,
+            Strings.ListWindowTunnelBlackHint));
 
         AutoConnectLabel.Text = Strings.SettingAutoConnect;
         MinimizeToTrayLabel.Text = Strings.SettingMinimizeToTray;
@@ -137,7 +152,6 @@ public partial class MainWindow : Window
         LogFolderButton.Content = Strings.LogOpenFolder;
         AutoScrollLabel.Text = Strings.LogAutoScroll;
 
-        RefreshExclusionCount();
         RebuildLocalizedCombos();
         Render(_vpn.CurrentStatus);
         _tray.ApplyStrings();
@@ -233,6 +247,9 @@ public partial class MainWindow : Window
 
             MeekFrontPanel.Visibility =
                 _settings.BridgeMode == BridgeMode.Meek ? Visibility.Visible : Visibility.Collapsed;
+
+            InternetListsCard.Bind(_settings.InternetLists);
+            TunnelListsCard.Bind(_settings.TunnelLists);
         }
         finally
         {
@@ -240,20 +257,24 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RefreshExclusionCount()
+    /// <summary>
+    /// The internet lists take effect at once, whether or not a connection is up. Applied off the UI
+    /// thread because resolving the tunnel's executables starts each of them once to ask its version.
+    /// </summary>
+    private void OnInternetListsChanged()
     {
-        try
-        {
-            var count = ExclusionList.Read().Count;
-            ExclusionsCount.Text = count == 0
-                ? Strings.ExclusionsNone
-                : string.Format(CultureInfo.CurrentCulture, Strings.ExclusionsCountFormat, count);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Could not count the excluded applications", ex);
-            ExclusionsCount.Text = Strings.ExclusionsNone;
-        }
+        _settings.Save();
+        _ = Task.Run(_vpn.ApplyInternetLists);
+    }
+
+    /// <summary>
+    /// The routes and the kill switch are built from the tunnel lists, so a running or connecting
+    /// session starts over with the new ones straight away.
+    /// </summary>
+    private void OnTunnelListsChanged()
+    {
+        _settings.Save();
+        _vpn.RequestRestart("The tunnel lists changed.");
     }
 
     // ---------------------------------------------------------------- rendering
@@ -692,12 +713,6 @@ public partial class MainWindow : Window
 
         MtuBox.Text = _settings.Mtu.ToString(CultureInfo.InvariantCulture);
         _settings.Save();
-    }
-
-    private void OnOpenExclusionsClick(object sender, RoutedEventArgs e)
-    {
-        ExclusionList.Open();
-        RefreshExclusionCount();
     }
 
     private void OnLogCopyClick(object sender, RoutedEventArgs e)

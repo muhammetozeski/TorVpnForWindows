@@ -4,9 +4,9 @@ using TorVpnForWindows.Core;
 namespace TorVpnForWindows.Config;
 
 /// <summary>
-/// Plain-text list of executables whose traffic bypasses the tunnel, one process name per line.
-/// A text file rather than a settings key because it is meant to be edited by hand while the
-/// application is closed, and because it is easy to inspect when troubleshooting.
+/// The old plain-text list of process names whose traffic bypassed the tunnel. The tunnel lists in
+/// the settings replaced it; it is only read once, by <see cref="ExclusionMigration"/>, to carry its
+/// names over as paths.
 /// </summary>
 public static class ExclusionList
 {
@@ -95,36 +95,5 @@ public static class ExclusionList
         }
 
         return names;
-    }
-
-    public static void Open()
-    {
-        try
-        {
-            EnsureExists();
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = AppPaths.ExclusionsFile,
-                UseShellExecute = true
-            });
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Could not open the exclusions file", ex);
-
-            try
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "notepad.exe",
-                    Arguments = $"\"{AppPaths.ExclusionsFile}\"",
-                    UseShellExecute = true
-                });
-            }
-            catch (Exception fallbackEx)
-            {
-                Log.Error("Notepad fallback for the exclusions file also failed", fallbackEx);
-            }
-        }
     }
 }

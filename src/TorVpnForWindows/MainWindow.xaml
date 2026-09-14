@@ -1,6 +1,7 @@
 <Window x:Class="TorVpnForWindows.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:TorVpnForWindows.Ui"
         Title="Tor VPN for Windows"
         Height="700" Width="470"
         MinHeight="620" MinWidth="440"
@@ -337,25 +338,8 @@
                                       Style="{StaticResource Switch}" Click="OnSettingToggled" />
                         </Grid>
 
-                        <Border Style="{StaticResource Card}" Margin="0,4,0,0">
-                            <StackPanel>
-                                <TextBlock x:Name="ExclusionsLabel" Text="Excluded applications"
-                                           FontWeight="SemiBold" />
-                                <TextBlock x:Name="ExclusionsHint" Style="{StaticResource Muted}"
-                                           Margin="0,4,0,0" />
-                                <Grid Margin="0,10,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="ExclusionsCount" Grid.Column="0"
-                                               Style="{StaticResource Muted}"
-                                               VerticalAlignment="Center" />
-                                    <Button x:Name="OpenExclusionsButton" Grid.Column="1"
-                                            Content="Open the list" Click="OnOpenExclusionsClick" />
-                                </Grid>
-                            </StackPanel>
-                        </Border>
+                        <ui:ProgramListsCard x:Name="InternetListsCard" Margin="0,4,0,0" />
+                        <ui:ProgramListsCard x:Name="TunnelListsCard" Margin="0,10,0,0" />
 
                         <TextBlock x:Name="SectionApplication" Style="{StaticResource SectionHeader}"
                                    Text="APPLICATION" />
