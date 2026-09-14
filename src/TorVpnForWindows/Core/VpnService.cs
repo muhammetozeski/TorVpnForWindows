@@ -100,6 +100,12 @@ public sealed class VpnService : IAsyncDisposable
     /// <summary>Failed attempts in a row, which sets how long the supervisor waits before the next.</summary>
     private int _consecutiveFailures;
 
+    /// <summary>
+    /// Set once the current attempt has found a usable network and gone on to start Tor, so the
+    /// network watcher reporting that same network's arrival a moment later does not start it over.
+    /// </summary>
+    private volatile bool _attemptHasNetwork;
+
     private TorRunner? _tor;
     private SingBoxRunner? _singBox;
     private Task? _statsTask;
@@ -488,6 +494,7 @@ public sealed class VpnService : IAsyncDisposable
     {
         lock (_attemptGate)
         {
+            _attemptHasNetwork = false;
             _attemptCts?.Dispose();
             _attemptCts = new CancellationTokenSource();
 
@@ -833,6 +840,7 @@ public sealed class VpnService : IAsyncDisposable
 
         if (_network.HasUsableNetwork)
         {
+            _attemptHasNetwork = true;
             return;
         }
 
@@ -844,6 +852,7 @@ public sealed class VpnService : IAsyncDisposable
             await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
         }
 
+        _attemptHasNetwork = true;
         Log.App("A network is up");
         SetState(VpnState.Preparing, null);
     }
@@ -854,10 +863,20 @@ public sealed class VpnService : IAsyncDisposable
     /// either way, and a fresh start reaches the bridges immediately instead of on Tor's retry
     /// schedule.
     /// </summary>
-    private void OnNetworkChanged(bool usable)
+    private void OnNetworkChanged(bool usable, bool lost)
     {
         if (!_wantConnected)
         {
+            return;
+        }
+
+        // A network that only arrived, while the attempt has already found it and started Tor on
+        // it, needs nothing more. On 14.09.2026 the Wi-Fi reconnected by itself, the attempt saw it
+        // on its next check and started Tor, and five seconds later the watcher's report of that same
+        // arrival killed the new Tor before its control connection existed.
+        if (usable && !lost && _attemptHasNetwork)
+        {
+            Log.App("The network arrived; the current attempt is already using it");
             return;
         }
 

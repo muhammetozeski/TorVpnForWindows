@@ -43,9 +43,10 @@ public sealed class NetworkWatcher : IDisposable
 
     /// <summary>
     /// Raised once the network has settled after a change that breaks connections, off the UI thread.
-    /// The argument says whether a usable network is present now.
+    /// The first argument says whether a usable network is present now; the second whether an address
+    /// or gateway that was there went away, as opposed to a network only arriving.
     /// </summary>
-    public event Action<bool>? Changed;
+    public event Action<bool, bool>? Changed;
 
     public NetworkWatcher(Func<string> tunnelName)
     {
@@ -95,6 +96,7 @@ public sealed class NetworkWatcher : IDisposable
     {
         bool changed;
         bool usable;
+        bool lost;
 
         try
         {
@@ -107,7 +109,7 @@ public sealed class NetworkWatcher : IDisposable
                     return;
                 }
 
-                var lost = _lostSomething || _baseline.Any(atom => !now.Contains(atom));
+                lost = _lostSomething || _baseline.Any(atom => !now.Contains(atom));
                 var arrived = _baseline.Count == 0 && now.Count > 0;
 
                 changed = lost || arrived;
@@ -135,7 +137,7 @@ public sealed class NetworkWatcher : IDisposable
 
         try
         {
-            Changed?.Invoke(usable);
+            Changed?.Invoke(usable, lost);
         }
         catch (Exception ex)
         {
