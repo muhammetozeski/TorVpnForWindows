@@ -33,6 +33,7 @@
   <s name="HintWaitingForNetwork">Tor will connect as soon as a network is up.</s>
   <s name="HintWaitingForNetworkBlocked">Tor will connect as soon as a network is up. Until then the internet is blocked.</s>
 
+  <s name="StatusEntryAddress">Entry address</s>
   <s name="StatusExitAddress">Exit address</s>
   <s name="StatusExitCountry">Exit country</s>
   <s name="StatusChecking">Checking…</s>

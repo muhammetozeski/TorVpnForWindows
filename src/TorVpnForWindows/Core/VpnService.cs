@@ -39,6 +39,7 @@ public sealed record VpnStatus(
     int BootstrapProgress,
     string? BootstrapSummary,
     ExitInfo? Exit,
+    EntryInfo? Entry,
     string? Message);
 
 /// <summary>
@@ -106,6 +107,7 @@ public sealed class VpnService : IAsyncDisposable
     private int _bootstrapProgress;
     private string? _bootstrapSummary;
     private ExitInfo? _exit;
+    private EntryInfo? _entry;
     private string? _message;
 
     public VpnState State { get; private set; } = VpnState.Disconnected;
@@ -133,7 +135,7 @@ public sealed class VpnService : IAsyncDisposable
     }
 
     public VpnStatus CurrentStatus =>
-        new(State, _bootstrapProgress, _bootstrapSummary, _exit, _message);
+        new(State, _bootstrapProgress, _bootstrapSummary, _exit, _entry, _message);
 
     /// <summary>
     /// Whether the user has asked for a connection and not yet asked to disconnect. While this is
@@ -335,6 +337,7 @@ public sealed class VpnService : IAsyncDisposable
         }
 
         await RefreshExitInfoAsync(token).ConfigureAwait(false);
+        await RefreshEntryInfoAsync(token).ConfigureAwait(false);
         return true;
     }
 
@@ -995,6 +998,7 @@ public sealed class VpnService : IAsyncDisposable
         try
         {
             await RefreshExitInfoAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshEntryInfoAsync(cancellationToken).ConfigureAwait(false);
 
             var throughTunnel = await ReachableWithoutProxyAsync(cancellationToken).ConfigureAwait(false);
             if (throughTunnel)
@@ -1114,6 +1118,40 @@ public sealed class VpnService : IAsyncDisposable
         catch (Exception ex)
         {
             Log.Error("Refreshing the exit address failed", ex);
+        }
+    }
+
+    /// <summary>Asks Tor where its circuits enter the network and puts that on the status.</summary>
+    private async Task RefreshEntryInfoAsync(CancellationToken cancellationToken)
+    {
+        var tor = _tor;
+        var control = tor?.Control;
+
+        if (tor is null || control is not { IsConnected: true })
+        {
+            return;
+        }
+
+        try
+        {
+            var entry = await EntryNodeChecker.QueryAsync(control, tor.BridgeLines, cancellationToken).ConfigureAwait(false);
+
+            if (entry is null || cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _entry = entry;
+            Log.App($"Entry address {entry.Address}{(entry.CountryCode is null ? string.Empty : $" ({entry.CountryCode})")}");
+            RaiseStatus();
+        }
+        catch (OperationCanceledException)
+        {
+            // The session ended while asking.
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Reading the entry address failed", ex);
         }
     }
 
@@ -1281,6 +1319,7 @@ public sealed class VpnService : IAsyncDisposable
         BytesWritten = 0;
         Traffic = TrafficSnapshot.Empty;
         _exit = null;
+        _entry = null;
         _bootstrapProgress = 0;
         _bootstrapSummary = null;
     }

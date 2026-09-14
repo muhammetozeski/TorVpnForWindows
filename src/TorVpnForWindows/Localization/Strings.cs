@@ -50,6 +50,7 @@ internal static class Strings
         "Bir ağa bağlanınca Tor'a bağlanılacak. O zamana kadar internet engelli.";
 
     // ---- status card ----
+    public static string StatusEntryAddress = "Giriş adresi";
     public static string StatusExitAddress = "Çıkış adresi";
     public static string StatusExitCountry = "Çıkış ülkesi";
     public static string StatusChecking = "Denetleniyor…";

@@ -27,6 +27,9 @@ public sealed partial class TorRunner : IAsyncDisposable
 
     public TorControlClient? Control => _control;
 
+    /// <summary>The bridge lines this Tor was started with; empty when it uses no bridges.</summary>
+    public IReadOnlyList<string> BridgeLines { get; private set; } = [];
+
     public bool IsRunning => _process is { HasExited: false };
 
     public event Action<BootstrapStatus>? BootstrapChanged;
@@ -60,6 +63,8 @@ public sealed partial class TorRunner : IAsyncDisposable
         TryDeleteStaleCookie(cookiePath);
 
         var bridges = await BridgeProvider.ResolveAsync(settings, cancellationToken).ConfigureAwait(false);
+        BridgeLines = bridges.Lines;
+
         if (bridges.Lines.Count > 0)
         {
             Log.App($"Using {bridges.Lines.Count} bridge line(s), source: {bridges.Origin}");

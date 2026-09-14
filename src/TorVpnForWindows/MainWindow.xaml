@@ -101,6 +101,17 @@
                     <Border x:Name="ExitCard" Grid.Row="3" Style="{StaticResource Card}"
                             Margin="0,18,0,0" Visibility="Collapsed">
                         <StackPanel>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="EntryAddressLabel" Grid.Column="0"
+                                           Style="{StaticResource Muted}" Text="Entry address" />
+                                <TextBlock x:Name="EntryAddressValue" Grid.Column="1"
+                                           HorizontalAlignment="Right" FontWeight="SemiBold"
+                                           FontFamily="{StaticResource MonoFont}" Text="—" />
+                            </Grid>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />

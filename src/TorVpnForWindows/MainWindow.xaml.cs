@@ -96,6 +96,7 @@ public partial class MainWindow : Window
         RetryButton.Content = Strings.ButtonRetry;
         UdpNotice.Text = Strings.StatusUdpNotice;
 
+        EntryAddressLabel.Text = Strings.StatusEntryAddress;
         ExitAddressLabel.Text = Strings.StatusExitAddress;
         ExitCountryLabel.Text = Strings.StatusExitCountry;
         DownloadLabel.Text = Strings.StatusDownload;
@@ -422,6 +423,12 @@ public partial class MainWindow : Window
         TrafficPanel.Visibility = showSession ? Visibility.Visible : Visibility.Collapsed;
         UdpNotice.Visibility = showSession ? Visibility.Visible : Visibility.Collapsed;
         RenderMap(status.Exit, showSession);
+
+        // The address the local network sees the connection going to: the bridge from the settings,
+        // or Tor's guard relay without bridges.
+        EntryAddressValue.Text = status.Entry is { } entry
+            ? entry.CountryCode is null ? entry.Address : $"{entry.Address} ({entry.CountryCode})"
+            : showSession ? Strings.StatusChecking : "—";
 
         if (status.Exit is { } exit)
         {
