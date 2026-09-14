@@ -47,7 +47,12 @@ public sealed partial class TorControlClient : IAsyncDisposable
         _stream = _client.GetStream();
         _writer = new StreamWriter(_stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\r\n" };
 
-        _readerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        // The reader lives as long as this client, not as long as the connect call. It used to be
+        // tied to the session's token, so ending a session stopped the reader first; its StreamReader
+        // then closed the socket, and the SIGNAL HALT sent next failed with ObjectDisposedException
+        // every single time. Tor was left to be killed after a three second wait on every stop and
+        // every retry.
+        _readerCts = new CancellationTokenSource();
         _readerTask = Task.Run(() => ReadLoopAsync(_readerCts.Token), CancellationToken.None);
 
         var hex = Convert.ToHexString(cookie);
