@@ -339,11 +339,12 @@ public partial class MainWindow : Window
     private void Render(VpnStatus status)
     {
         var connected = status.State == VpnState.Connected;
-        var busy = status.State is VpnState.Preparing or VpnState.Bootstrapping
-            or VpnState.EstablishingTunnel or VpnState.Disconnecting;
 
         PowerToggle.IsChecked = connected || status.State is VpnState.Interrupted or VpnState.WaitingForNetwork;
-        PowerToggle.IsEnabled = !busy;
+
+        // Usable while a connection is being made, because a connect that is going nowhere is exactly
+        // when it is pressed. Only the few seconds of an actual disconnect have nothing to cancel.
+        PowerToggle.IsEnabled = status.State != VpnState.Disconnecting;
 
         StateText.Text = status.State switch
         {
@@ -506,10 +507,14 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Never disables the button. It used to be disabled until the retry finished, and a retry
+    /// finishes only when Tor has bootstrapped, so with no network it stayed grey after one press.
+    /// The retry itself only asks the supervisor to start over and returns at once, so pressing it
+    /// again while the new attempt runs simply starts over once more.
+    /// </summary>
     private async void OnRetryClick(object sender, RoutedEventArgs e)
     {
-        RetryButton.IsEnabled = false;
-
         try
         {
             await _vpn.RetryAsync();
@@ -518,12 +523,6 @@ public partial class MainWindow : Window
         {
             Log.Error("Retry threw", ex);
             MessageBox.Show(this, ex.Message, Strings.ErrorTitle, MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            // Re-enabled unconditionally: this button exists for the case where everything else is
-            // stuck, so it must never be the thing that is stuck.
-            RetryButton.IsEnabled = true;
         }
     }
 
