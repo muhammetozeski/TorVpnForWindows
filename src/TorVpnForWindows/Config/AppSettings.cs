@@ -13,6 +13,57 @@ public enum BridgeMode
     Custom
 }
 
+/// <summary>Which list of a <see cref="ProgramLists"/> pair is in force.</summary>
+public enum ProgramListMode
+{
+    /// <summary>Neither list is in force.</summary>
+    Off,
+
+    Whitelist,
+
+    Blacklist
+}
+
+/// <summary>
+/// A white list and a black list of executables, each entry an exact path. The two lists keep their
+/// own entries, and at most one of them is in force: both can be off, but turning one on turns the
+/// other off. That is why the choice is one value rather than two switches that could both be on.
+/// </summary>
+public sealed class ProgramLists
+{
+    public ProgramListMode Mode { get; set; } = ProgramListMode.Off;
+
+    public List<string> Whitelist { get; set; } = [];
+
+    public List<string> Blacklist { get; set; } = [];
+
+    /// <summary>The entries of whichever list is in force; empty when neither is.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ActiveEntries => Mode switch
+    {
+        ProgramListMode.Whitelist => Whitelist,
+        ProgramListMode.Blacklist => Blacklist,
+        _ => []
+    };
+
+    internal void Normalize()
+    {
+        if (!Enum.IsDefined(Mode))
+        {
+            Mode = ProgramListMode.Off;
+        }
+
+        Whitelist = Clean(Whitelist);
+        Blacklist = Clean(Blacklist);
+    }
+
+    private static List<string> Clean(List<string>? entries) => (entries ?? [])
+        .Select(entry => entry?.Trim() ?? string.Empty)
+        .Where(entry => entry.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+}
+
 /// <summary>
 /// User-visible configuration, persisted as JSON. Defaults are chosen so that a first run with no
 /// interaction gives a working, leak-free tunnel.
@@ -52,6 +103,18 @@ public sealed class AppSettings
 
     /// <summary>Let traffic to private address ranges bypass the tunnel (printers, NAS, router).</summary>
     public bool AllowLan { get; set; } = true;
+
+    /// <summary>
+    /// Which programs may reach anything outside this machine at all, like a firewall. In force
+    /// whenever the application is running, connected or not.
+    /// </summary>
+    public ProgramLists InternetLists { get; set; } = new();
+
+    /// <summary>Which programs go through the Tor tunnel and which leave through the normal connection.</summary>
+    public ProgramLists TunnelLists { get; set; } = new();
+
+    /// <summary>Set once the names in the old exclusions.txt have been moved into the tunnel black list.</summary>
+    public bool ExclusionsMigrated { get; set; }
 
     /// <summary>Connect as soon as the application starts.</summary>
     public bool AutoConnect { get; set; }
@@ -166,6 +229,12 @@ public sealed class AppSettings
             .Select(b => b.Trim())
             .Where(b => b.Length > 0 && !b.StartsWith('#'))
             .ToList();
+
+        // Absent from settings written by an older version, and null if the file says so.
+        InternetLists ??= new ProgramLists();
+        TunnelLists ??= new ProgramLists();
+        InternetLists.Normalize();
+        TunnelLists.Normalize();
 
         if (!string.IsNullOrWhiteSpace(MeekFront))
         {

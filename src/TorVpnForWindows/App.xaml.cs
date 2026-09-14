@@ -54,7 +54,8 @@ public partial class App : Application
             return;
         }
 
-        ExclusionList.EnsureExists();
+        // Before anything reads the lists: the names of the old exclusion file become exact paths.
+        ExclusionMigration.Run(settings);
 
         _vpn = new VpnService(settings);
 
