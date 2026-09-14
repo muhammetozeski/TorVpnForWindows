@@ -76,6 +76,7 @@ public sealed class VpnService : IAsyncDisposable
 {
     private readonly JobObject _job = new();
     private readonly KillSwitchGuard _killSwitch = new();
+    private readonly InternetFirewall _firewall = new();
     private readonly NetworkWatcher _network;
 
     /// <summary>Serializes connect, disconnect and retry against each other.</summary>
@@ -194,6 +195,24 @@ public sealed class VpnService : IAsyncDisposable
         {
             Log.Error("Arming the kill switch at startup failed", ex);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Puts the internet lists in force as they are in the settings now. Called at startup, whether
+    /// or not a connection is wanted, and whenever the lists change. Takes effect at once for new
+    /// connections; nothing has to reconnect.
+    /// </summary>
+    public void ApplyInternetLists()
+    {
+        try
+        {
+            PayloadExtractor.EnsureExtracted();
+            _firewall.Apply(Settings.InternetLists, Binaries.Resolve());
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Applying the internet lists failed", ex);
         }
     }
 
@@ -588,8 +607,10 @@ public sealed class VpnService : IAsyncDisposable
         _tor = new TorRunner(_job);
         _tor.BootstrapChanged += OnBootstrapChanged;
         _tor.Exited += OnTorExited;
-        _tor.ProcessStarted = pid =>
-            _killSwitch.PermitProcessTreeAsync(pid, TimeSpan.FromSeconds(6), token);
+        // Both need the real executables a launcher on PATH starts, not just the launcher itself.
+        _tor.ProcessStarted = pid => Task.WhenAll(
+            _killSwitch.PermitProcessTreeAsync(pid, TimeSpan.FromSeconds(6), token),
+            _firewall.PermitProcessTreeAsync(pid, TimeSpan.FromSeconds(6), token));
 
         SetState(VpnState.Bootstrapping, null);
         await _tor.StartAsync(Settings, binaries, token).ConfigureAwait(false);
@@ -1299,6 +1320,7 @@ public sealed class VpnService : IAsyncDisposable
         }
 
         _killSwitch.Dispose();
+        _firewall.Dispose();
         _job.Dispose();
         _commandGate.Dispose();
         _teardownGate.Dispose();
