@@ -307,7 +307,14 @@ public sealed class SingBoxRunner : IAsyncDisposable
 
         Log.App($"sing-box.exe exited with code {code}");
 
-        _started?.TrySetException(new InvalidOperationException($"sing-box.exe exited with code {code}."));
+        if (_started is { } started &&
+            started.TrySetException(new InvalidOperationException($"sing-box.exe exited with code {code}.")))
+        {
+            // Once the tunnel is up nobody waits on this any more, and an exception no one reads is
+            // reported as an unobserved task exception when the task is collected. It is read here,
+            // which marks it observed; the exit itself is reported through Exited.
+            _ = started.Task.Exception;
+        }
 
         if (_stopRequested)
         {
