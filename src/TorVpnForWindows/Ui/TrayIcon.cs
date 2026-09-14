@@ -78,7 +78,9 @@ public sealed class TrayIcon : IDisposable
             Log.Error("Could not change the notification area icon", ex);
         }
 
-        _connectItem.Enabled = state is VpnState.Disconnected or VpnState.Failed or VpnState.Interrupted;
+        // While reconnecting or waiting for a network the connection is already being worked on, so
+        // only disconnect makes sense.
+        _connectItem.Enabled = state is VpnState.Disconnected or VpnState.Failed;
         _disconnectItem.Enabled = state is not (VpnState.Disconnected or VpnState.Disconnecting);
     }
 

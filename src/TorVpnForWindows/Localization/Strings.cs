@@ -34,14 +34,20 @@ internal static class Strings
     public static string StateEstablishingTunnel = "Tünel kuruluyor";
     public static string StateConnected = "Bağlandı";
     public static string StateDisconnecting = "Bağlantı kesiliyor";
-    public static string StateInterrupted = "Trafik engellendi";
+    public static string StateReconnecting = "Yeniden bağlanılıyor";
+    public static string StateWaitingForNetwork = "Ağ bekleniyor";
     public static string StateFailed = "Başarısız";
 
     public static string HintDisconnected = "Trafiğiniz normal şekilde çıkıyor.";
     public static string HintBlockedUntilConnected =
         "İnternet engellendi. Tor bağlanana kadar hiçbir program dışarı çıkamaz.";
     public static string HintConnected = "Bu bilgisayardaki her bağlantı Tor üzerinden geçiyor.";
-    public static string HintInterrupted = "Tor durdu. Kill switch trafiği tutuyor.";
+    public static string HintReconnecting = "Bağlantı baştan kuruluyor.";
+    public static string HintReconnectingBlocked =
+        "Bağlantı baştan kuruluyor. Tor bağlanana kadar internet engelli.";
+    public static string HintWaitingForNetwork = "Bir ağa bağlanınca Tor'a bağlanılacak.";
+    public static string HintWaitingForNetworkBlocked =
+        "Bir ağa bağlanınca Tor'a bağlanılacak. O zamana kadar internet engelli.";
 
     // ---- status card ----
     public static string StatusExitAddress = "Çıkış adresi";

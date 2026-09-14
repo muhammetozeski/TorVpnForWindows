@@ -24,6 +24,7 @@ public static class StateIcons
     {
         VpnState.Connected => "TorVpnForWindows.icon-connected.ico",
         VpnState.Preparing or VpnState.Bootstrapping or VpnState.EstablishingTunnel or VpnState.Disconnecting
+            or VpnState.Interrupted or VpnState.WaitingForNetwork
             => "TorVpnForWindows.icon-connecting.ico",
         _ => "TorVpnForWindows.icon-disconnected.ico"
     };

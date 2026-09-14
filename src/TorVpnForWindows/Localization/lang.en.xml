@@ -21,13 +21,17 @@
   <s name="StateEstablishingTunnel">Setting up the tunnel</s>
   <s name="StateConnected">Connected</s>
   <s name="StateDisconnecting">Disconnecting</s>
-  <s name="StateInterrupted">Traffic blocked</s>
+  <s name="StateReconnecting">Reconnecting</s>
+  <s name="StateWaitingForNetwork">Waiting for a network</s>
   <s name="StateFailed">Failed</s>
 
   <s name="HintDisconnected">Your traffic is going out normally.</s>
   <s name="HintBlockedUntilConnected">The internet is blocked. Nothing can reach it until Tor is connected.</s>
   <s name="HintConnected">Every connection on this machine goes through Tor.</s>
-  <s name="HintInterrupted">Tor stopped. The kill switch is holding traffic back.</s>
+  <s name="HintReconnecting">The connection is being set up again.</s>
+  <s name="HintReconnectingBlocked">The connection is being set up again. The internet stays blocked until Tor is connected.</s>
+  <s name="HintWaitingForNetwork">Tor will connect as soon as a network is up.</s>
+  <s name="HintWaitingForNetworkBlocked">Tor will connect as soon as a network is up. Until then the internet is blocked.</s>
 
   <s name="StatusExitAddress">Exit address</s>
   <s name="StatusExitCountry">Exit country</s>

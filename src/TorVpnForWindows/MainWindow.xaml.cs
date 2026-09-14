@@ -342,18 +342,19 @@ public partial class MainWindow : Window
         var busy = status.State is VpnState.Preparing or VpnState.Bootstrapping
             or VpnState.EstablishingTunnel or VpnState.Disconnecting;
 
-        PowerToggle.IsChecked = connected || status.State == VpnState.Interrupted;
+        PowerToggle.IsChecked = connected || status.State is VpnState.Interrupted or VpnState.WaitingForNetwork;
         PowerToggle.IsEnabled = !busy;
 
         StateText.Text = status.State switch
         {
             VpnState.Disconnected => Strings.StateDisconnected,
+            VpnState.WaitingForNetwork => Strings.StateWaitingForNetwork,
             VpnState.Preparing => Strings.StatePreparing,
             VpnState.Bootstrapping => Strings.StateBootstrapping,
             VpnState.EstablishingTunnel => Strings.StateEstablishingTunnel,
             VpnState.Connected => Strings.StateConnected,
             VpnState.Disconnecting => Strings.StateDisconnecting,
-            VpnState.Interrupted => Strings.StateInterrupted,
+            VpnState.Interrupted => Strings.StateReconnecting,
             VpnState.Failed => Strings.StateFailed,
             _ => status.State.ToString()
         };
@@ -363,7 +364,8 @@ public partial class MainWindow : Window
         StateHint.Text = status.State switch
         {
             VpnState.Connected => status.Message ?? Strings.HintConnected,
-            VpnState.Interrupted => Strings.HintInterrupted,
+            VpnState.Interrupted => _vpn.TrafficBlocked ? Strings.HintReconnectingBlocked : Strings.HintReconnecting,
+            VpnState.WaitingForNetwork => _vpn.TrafficBlocked ? Strings.HintWaitingForNetworkBlocked : Strings.HintWaitingForNetwork,
             VpnState.Failed => status.Message ?? Strings.HintDisconnected,
 
             // Saying "your traffic is going out normally" while the block is on would be the
@@ -382,7 +384,7 @@ public partial class MainWindow : Window
             VpnState.Connected when connectedButBlocked => (System.Windows.Media.Brush)FindResource("WarningBrush"),
             VpnState.Connected => (System.Windows.Media.Brush)FindResource("SuccessBrush"),
             VpnState.Failed => (System.Windows.Media.Brush)FindResource("DangerBrush"),
-            VpnState.Interrupted => (System.Windows.Media.Brush)FindResource("WarningBrush"),
+            VpnState.Interrupted or VpnState.WaitingForNetwork => (System.Windows.Media.Brush)FindResource("WarningBrush"),
             _ => (System.Windows.Media.Brush)FindResource("TextBrush")
         };
 
@@ -701,7 +703,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!_reallyClosing && _vpn.State is VpnState.Connected or VpnState.Interrupted)
+        if (!_reallyClosing && _vpn.WantsConnection)
         {
             var answer = MessageBox.Show(
                 this,

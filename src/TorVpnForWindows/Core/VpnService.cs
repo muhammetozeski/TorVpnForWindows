@@ -6,6 +6,12 @@ public enum VpnState
 {
     Disconnected,
 
+    /// <summary>
+    /// A connection is wanted but no network is up. Tor is not started until one is, and the block
+    /// stays on meanwhile if the kill switch setting asks for it.
+    /// </summary>
+    WaitingForNetwork,
+
     /// <summary>Unpacking the runtime and starting Tor.</summary>
     Preparing,
 
@@ -70,6 +76,7 @@ public sealed class VpnService : IAsyncDisposable
 {
     private readonly JobObject _job = new();
     private readonly KillSwitchGuard _killSwitch = new();
+    private readonly NetworkWatcher _network;
 
     /// <summary>Serializes connect, disconnect and retry against each other.</summary>
     private readonly SemaphoreSlim _commandGate = new(1, 1);
@@ -116,7 +123,13 @@ public sealed class VpnService : IAsyncDisposable
 
     public event Action<TrafficSnapshot>? TrafficChanged;
 
-    public VpnService(AppSettings settings) => Settings = settings;
+    public VpnService(AppSettings settings)
+    {
+        Settings = settings;
+
+        _network = new NetworkWatcher(() => Settings.TunInterfaceName);
+        _network.Changed += OnNetworkChanged;
+    }
 
     public VpnStatus CurrentStatus =>
         new(State, _bootstrapProgress, _bootstrapSummary, _exit, _message);
@@ -568,7 +581,7 @@ public sealed class VpnService : IAsyncDisposable
 
         ApplyKillSwitchSetting(binaries, excluded);
 
-        token.ThrowIfCancellationRequested();
+        await WaitForNetworkAsync(token).ConfigureAwait(false);
 
         _tor = new TorRunner(_job);
         _tor.BootstrapChanged += OnBootstrapChanged;
@@ -625,6 +638,51 @@ public sealed class VpnService : IAsyncDisposable
         _ = BridgeProvider.RefreshThroughTorAsync(Settings, endpoints.SocksPort, token);
 
         await MonitorHealthAsync(token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Holds the attempt until a network is up.
+    ///
+    /// Starting Tor with no network only produces failures that Tor then takes its time to retry,
+    /// which is how a session started with the Wi-Fi off stayed stuck after the Wi-Fi came up. The
+    /// network watcher starts the attempt over the moment a network settles; the poll here is only a
+    /// backstop in case that event never arrives.
+    /// </summary>
+    private async Task WaitForNetworkAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+
+        if (_network.HasUsableNetwork)
+        {
+            return;
+        }
+
+        Log.App("No network is up; waiting for one before starting Tor");
+        SetState(VpnState.WaitingForNetwork, null);
+
+        while (!_network.HasUsableNetwork)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+        }
+
+        Log.App("A network is up");
+        SetState(VpnState.Preparing, null);
+    }
+
+    /// <summary>
+    /// Starts the session over whenever the real network settles into a different shape: a network
+    /// arriving, leaving, or coming back after a drop. Whatever Tor had open on the old one is gone
+    /// either way, and a fresh start reaches the bridges immediately instead of on Tor's retry
+    /// schedule.
+    /// </summary>
+    private void OnNetworkChanged(bool usable)
+    {
+        if (!_wantConnected)
+        {
+            return;
+        }
+
+        EndAttempt(AttemptEnd.Restart, usable ? "The network changed." : "The network went away.");
     }
 
     /// <summary>
@@ -1047,6 +1105,9 @@ public sealed class VpnService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _network.Changed -= OnNetworkChanged;
+        _network.Dispose();
+
         try
         {
             await StopSupervisorAsync().ConfigureAwait(false);
