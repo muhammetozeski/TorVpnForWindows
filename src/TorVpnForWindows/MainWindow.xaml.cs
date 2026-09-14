@@ -574,13 +574,36 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Enum.TryParse<BridgeMode>(item.Value, out var mode))
+        if (Enum.TryParse<BridgeMode>(item.Value, out var mode) && mode != _settings.BridgeMode)
         {
             _settings.BridgeMode = mode;
             _settings.Save();
             CustomBridgePanel.Visibility = mode == BridgeMode.Custom ? Visibility.Visible : Visibility.Collapsed;
             MeekFrontPanel.Visibility = mode == BridgeMode.Meek ? Visibility.Visible : Visibility.Collapsed;
+
+            // An empty custom list would start Tor with no bridges at all, in plain view of the
+            // network, while the user is still on the way to pasting their lines. The restart comes
+            // when the list is filled in instead.
+            if (mode != BridgeMode.Custom || _settings.CustomBridges.Count > 0)
+            {
+                ApplyBridgeChange("The bridge setting changed.");
+            }
         }
+    }
+
+    /// <summary>
+    /// Starts a running or connecting session over, so a bridge change takes effect now rather than
+    /// on the next connect. Retry, new circuit and reconnecting all build on the saved settings, so
+    /// after this every one of them continues with the new bridges.
+    /// </summary>
+    private void ApplyBridgeChange(string reason)
+    {
+        if (!_vpn.WantsConnection)
+        {
+            return;
+        }
+
+        _vpn.RequestRestart(reason);
     }
 
     private void OnMeekFrontChanged(object sender, SelectionChangedEventArgs e)
@@ -590,8 +613,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        _settings.MeekFront = string.IsNullOrEmpty(item.Value) ? null : item.Value;
+        var front = string.IsNullOrEmpty(item.Value) ? null : item.Value;
+
+        if (string.Equals(front, _settings.MeekFront, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _settings.MeekFront = front;
         _settings.Save();
+
+        if (_settings.BridgeMode == BridgeMode.Meek)
+        {
+            ApplyBridgeChange("The meek front changed.");
+        }
     }
 
     private void OnCustomBridgesLostFocus(object sender, RoutedEventArgs e)
@@ -601,13 +636,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        _settings.CustomBridges = CustomBridgeBox.Text
+        var lines = CustomBridgeBox.Text
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.Trim())
             .Where(line => line.Length > 0)
             .ToList();
 
+        // Leaving the box without editing it must not restart a working session.
+        if (lines.SequenceEqual(_settings.CustomBridges, StringComparer.Ordinal))
+        {
+            return;
+        }
+
+        _settings.CustomBridges = lines;
         _settings.Save();
+
+        if (_settings.BridgeMode == BridgeMode.Custom && lines.Count > 0)
+        {
+            ApplyBridgeChange("The custom bridge list changed.");
+        }
     }
 
     private void OnSettingToggled(object sender, RoutedEventArgs e)
