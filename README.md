@@ -28,8 +28,11 @@ configure. This covers the whole machine, including programs that have no proxy 
   allowed out around the tunnel. Applications fall back to TCP immediately.
 - Resolves `.onion` addresses. Tor maps them into a routable range that the tunnel carries back to
   it, so onion services work in any program, not just a browser.
-- Keeps `tor.exe` and its transports out of the tunnel they are providing, along with any
-  application listed in `exclusions.txt`.
+- Keeps `tor.exe` and its transports out of the tunnel they are providing.
+- Lets you decide, by the exact path of each executable, which programs go through Tor and which
+  may reach the internet at all.
+- Starts the connection over by itself when the network comes, goes or changes, and when Tor stops
+  making progress, so a session begun before the Wi-Fi joined does not stay stuck.
 
 ## Features
 
@@ -39,7 +42,9 @@ configure. This covers the whole machine, including programs that have no proxy 
 | **Kill switch** | Blocks all traffic at the Windows Filtering Platform, below routing, permitting only the tunnel. If Tor drops, the block stays and the machine stays dark until Tor is back. On by default. |
 | **Exit country** | Restrict the exit relay to a chosen country, resolved against Tor's own GeoIP data. |
 | **Bridges** | obfs4, Snowflake and meek, or a list you paste in. Built-in lists are fetched from the Tor Project and cached rather than compiled in. |
-| **Excluded applications** | A plain text list of executables that bypass the tunnel and keep using the normal connection and DNS. |
+| **Tunnel lists** | A white list sends only the listed programs through Tor; a black list sends the listed programs around it. Matched by exact executable path, picked from running programs or chosen as a file. |
+| **Internet lists** | A firewall that works whether Tor is connected or not: a white list lets only the listed programs reach the internet, a black list blocks the listed ones. |
+| **Entry and exit** | The bridge or relay the connection enters Tor through, and the address traffic leaves from. |
 | **New circuit** | Ask Tor for fresh circuits and re-check the exit address. |
 | **Live traffic** | Download and upload speed as it happens, with the session totals underneath. |
 | **Exit on a map** | The country the traffic leaves from, marked on a world map. |
@@ -55,7 +60,7 @@ configure. This covers the whole machine, including programs that have no proxy 
   TorVPN adapter  ── default route, IPv4 and IPv6
       │
       ▼
-  sing-box  ── routing, DNS interception, UDP refusal, per-process exclusions
+  sing-box  ── routing, DNS interception, UDP refusal, tunnel lists by path
       │                                    │
       │ TCP + hostname                     │ DNS
       ▼                                    ▼
@@ -70,11 +75,30 @@ that, it would route its own traffic into the tunnel it is providing.
 
 ### The kill switch
 
-Pressing connect blocks everything before Tor even starts. Only Tor, its transports, this
-application and the executables in `exclusions.txt` are permitted. Once the tunnel is up, the
+Pressing connect blocks everything before Tor even starts. Only Tor, its transports, and the
+programs the tunnel black list sends around the tunnel are permitted. Once the tunnel is up, the
 tunnel adapter is permitted too. If Tor or the tunnel drops, that permit is revoked and the machine
-stays offline while a retry loop works on getting back; a network that disappears and returns stays
-blocked until Tor is connected again. Only an explicit disconnect removes the filters.
+stays offline while the connection is started over; a network that disappears and returns stays
+blocked until Tor is connected again. Retry keeps the block in place. Only an explicit disconnect
+removes the filters. With the tunnel white list on, only the listed programs are blocked outside
+the tunnel, since every other program is meant to use the normal connection anyway.
+
+### The lists
+
+Settings has two pairs of lists, each a white list and a black list with its own switch; turning
+one on turns the other off. Every entry is the exact path of an executable, resolved through the
+file system so that case, 8.3 short names, junctions and symbolic links all lead to the same
+spelling. A program with the same name somewhere else is not matched.
+
+- **Internet**: works like a firewall, connected or not. The white list lets only the listed
+  programs reach anything outside this machine; the black list blocks the listed ones. Tor, its
+  transports, sing-box, this application, the DHCP lease and connections inside the machine are
+  always allowed.
+- **Tunnel**: the white list sends only the listed programs through Tor and everything else out
+  normally; the black list sends the listed programs out normally and everything else through Tor.
+
+Whether a program may go out at all is decided before where its traffic goes: a program the
+internet lists block stays blocked even where the tunnel would carry it.
 
 They are installed in a dynamic Windows Filtering Platform session, so if this application is
 killed or crashes, Windows removes every filter it added. A crash restores networking rather than
@@ -155,7 +179,7 @@ Settings live in `%LOCALAPPDATA%\TorVpnForWindows`.
 | File | Purpose |
 |---|---|
 | `settings.json` | Everything the Settings tab writes. |
-| `exclusions.txt` | Executables that bypass the tunnel, one name per line. |
+| `exclusions.txt` | The old list of process names. Read once and moved into the tunnel black list as the paths of the matching running programs. |
 | `lang.en.xml`, `lang.tr.xml` | Interface text. Edit to change wording, or copy to `lang.<code>.xml` to add a language. |
 | `logs\app.log` | The application's own log plus everything Tor and sing-box print. |
 | `session\` | The generated `torrc` and `sing-box.json` for the current session, useful when something does not behave. |
