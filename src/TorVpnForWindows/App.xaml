@@ -358,11 +358,16 @@
                 <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
                 <Setter Property="FontSize" Value="12.5" />
                 <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
-                <Setter Property="Cursor" Value="Hand" />
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="TabItem">
-                            <Grid>
+                            <!--
+                                The hand cursor goes on the header, not on the TabItem. The page a tab
+                                shows is the TabItem's logical child, and WPF routes the cursor query
+                                through logical parents as well as visual ones, so a cursor set on the
+                                TabItem itself turned the whole page into a clickable-looking surface.
+                            -->
+                            <Grid Cursor="Hand">
                                 <Border x:Name="Chrome" Background="Transparent" Padding="16,9">
                                     <ContentPresenter ContentSource="Header"
                                                       HorizontalAlignment="Center"
