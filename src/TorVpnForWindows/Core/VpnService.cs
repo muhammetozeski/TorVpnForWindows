@@ -591,7 +591,7 @@ public sealed class VpnService : IAsyncDisposable
 
         SetState(VpnState.Bootstrapping, null);
         await _tor.StartAsync(Settings, binaries, token).ConfigureAwait(false);
-        await _tor.WaitForBootstrapAsync(token).ConfigureAwait(false);
+        await WaitForBootstrapAsync(_tor, token).ConfigureAwait(false);
 
         Log.App("Tor finished bootstrapping");
 
@@ -638,6 +638,159 @@ public sealed class VpnService : IAsyncDisposable
         _ = BridgeProvider.RefreshThroughTorAsync(Settings, endpoints.SocksPort, token);
 
         await MonitorHealthAsync(token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Waits for Tor to finish bootstrapping, and gives up on an attempt that has stopped moving so
+    /// the supervisor can start a fresh one.
+    ///
+    /// A bridge that fails is retried on Tor's own schedule, which is far slower than a person
+    /// waiting at a low percentage. A fresh Tor tries every bridge again straight away.
+    /// </summary>
+    private async Task WaitForBootstrapAsync(TorRunner tor, CancellationToken token)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token);
+
+        var bootstrap = tor.WaitForBootstrapAsync(linked.Token);
+        var watchdog = WatchForStallAsync(tor, linked.Token);
+        Task? first = null;
+
+        try
+        {
+            first = await Task.WhenAny(bootstrap, watchdog).ConfigureAwait(false);
+            await first.ConfigureAwait(false);
+        }
+        finally
+        {
+            await linked.CancelAsync().ConfigureAwait(false);
+
+            // The one that finished first has already been awaited above; the other is only
+            // unwinding from the cancellation and is awaited so its outcome is not left unobserved.
+            await ObserveAsync(first == bootstrap ? watchdog : bootstrap).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Throws when, with a network up, Tor has neither advanced its bootstrap nor read any data for
+    /// longer than its transport normally needs.
+    ///
+    /// Both are judged together because either alone misleads. The percentage can stand still for a
+    /// long time while a consensus downloads over a slow bridge, and the byte counter stays at zero
+    /// while snowflake is still finding a peer. Only when both have been still for the whole
+    /// allowance is the attempt really going nowhere.
+    /// </summary>
+    private async Task WatchForStallAsync(TorRunner tor, CancellationToken token)
+    {
+        var allowance = StallAllowance();
+        var lastProgress = _bootstrapProgress;
+        var lastRead = -1L;
+        var stillSince = DateTime.UtcNow;
+
+        while (true)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+
+            var progress = _bootstrapProgress;
+            var read = await ReadBytesReceivedAsync(tor, token).ConfigureAwait(false);
+
+            if (read >= 0 && lastRead < 0)
+            {
+                // The first reading is only where counting starts from.
+                lastRead = read;
+            }
+
+            var moved = progress != lastProgress ||
+                        (read >= 0 && read - lastRead >= StallByteThreshold);
+
+            if (moved)
+            {
+                lastProgress = progress;
+                lastRead = Math.Max(lastRead, read);
+                stillSince = DateTime.UtcNow;
+                continue;
+            }
+
+            // Without a network there is nothing to judge. The network watcher starts the attempt
+            // over when one appears.
+            if (!_network.HasUsableNetwork)
+            {
+                stillSince = DateTime.UtcNow;
+                continue;
+            }
+
+            var still = DateTime.UtcNow - stillSince;
+
+            if (still >= allowance)
+            {
+                throw new TimeoutException(
+                    $"Tor made no progress for {still.TotalSeconds:0} seconds, stuck at {progress}%.");
+            }
+        }
+    }
+
+    /// <summary>A few kilobytes: less than that can be a handshake that went nowhere.</summary>
+    private const long StallByteThreshold = 2048;
+
+    /// <summary>
+    /// How long an attempt may stand still before it is started over. Snowflake has to find a
+    /// volunteer peer through its broker before Tor sees any data, which can take a while; meek goes
+    /// through a content delivery network and is quicker; a relay or an obfs4 bridge either answers
+    /// within seconds or not at all.
+    /// </summary>
+    private TimeSpan StallAllowance()
+    {
+        IReadOnlyList<string> lines = Settings.BridgeMode switch
+        {
+            BridgeMode.Snowflake => ["snowflake"],
+            BridgeMode.Meek => ["meek"],
+            BridgeMode.Custom => Settings.CustomBridges,
+            _ => []
+        };
+
+        if (lines.Any(line => line.TrimStart().StartsWith("snowflake", StringComparison.OrdinalIgnoreCase)))
+        {
+            return TimeSpan.FromSeconds(90);
+        }
+
+        if (lines.Any(line => line.TrimStart().StartsWith("meek", StringComparison.OrdinalIgnoreCase)))
+        {
+            return TimeSpan.FromSeconds(45);
+        }
+
+        return TimeSpan.FromSeconds(30);
+    }
+
+    /// <summary>Bytes Tor has read so far, or -1 while that cannot be asked yet.</summary>
+    private static async Task<long> ReadBytesReceivedAsync(TorRunner tor, CancellationToken token)
+    {
+        var control = tor.Control;
+        if (control is not { IsConnected: true })
+        {
+            return -1;
+        }
+
+        var value = await control.GetInfoAsync("traffic/read", token).ConfigureAwait(false);
+
+        return long.TryParse(value, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var bytes)
+            ? bytes
+            : -1;
+    }
+
+    private static async Task ObserveAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled on purpose.
+        }
+        catch (Exception ex)
+        {
+            Log.App($"A task that was no longer needed ended with {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>
