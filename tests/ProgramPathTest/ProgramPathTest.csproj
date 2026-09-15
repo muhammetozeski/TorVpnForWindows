@@ -7,14 +7,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <RootNamespace>TorVpnForWindows.Tests</RootNamespace>
-    <AssemblyName>KillSwitchTest</AssemblyName>
+    <AssemblyName>ProgramPathTest</AssemblyName>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>false</SelfContained>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <ApplicationManifest>..\TunnelSmokeTest\app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -22,15 +19,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="$(AppDir)\Core\KillSwitchGuard.cs" />
-    <Compile Include="$(AppDir)\Core\WfpSession.cs" />
-    <Compile Include="$(AppDir)\Core\BinaryResolver.cs" />
-    <Compile Include="$(AppDir)\Core\Binaries.cs" />
-    <Compile Include="$(AppDir)\Core\AppPaths.cs" />
+    <!-- The path resolution under test, compiled from the application sources. -->
+    <Compile Include="$(AppDir)\Core\ExecutablePaths.cs" />
     <Compile Include="$(AppDir)\Core\Log.cs" />
-    <Compile Include="$(AppDir)\Core\NetworkProbe.cs" />
-    <Compile Include="$(AppDir)\Core\EncryptedDns.cs" />
-    <Compile Include="$(AppDir)\Core\ProcessTree.cs" />
+    <Compile Include="$(AppDir)\Core\AppPaths.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

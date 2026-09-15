@@ -47,7 +47,12 @@ public sealed partial class TorControlClient : IAsyncDisposable
         _stream = _client.GetStream();
         _writer = new StreamWriter(_stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\r\n" };
 
-        _readerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        // The reader lives as long as this client, not as long as the connect call. It used to be
+        // tied to the session's token, so ending a session stopped the reader first; its StreamReader
+        // then closed the socket, and the SIGNAL HALT sent next failed with ObjectDisposedException
+        // every single time. Tor was left to be killed after a three second wait on every stop and
+        // every retry.
+        _readerCts = new CancellationTokenSource();
         _readerTask = Task.Run(() => ReadLoopAsync(_readerCts.Token), CancellationToken.None);
 
         var hex = Convert.ToHexString(cookie);
@@ -161,6 +166,61 @@ public sealed partial class TorControlClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// The value of a GETINFO key that Tor answers with a block of lines, such as circuit-status, one
+    /// entry per line. Empty when Tor does not know the key or has nothing for it.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetInfoLinesAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var reply = await SendAsync($"GETINFO {key}", cancellationToken).ConfigureAwait(false);
+            if (!reply.IsOk)
+            {
+                return [];
+            }
+
+            var prefix = key + "=";
+            var start = -1;
+
+            for (var i = 0; i < reply.Lines.Count; i++)
+            {
+                if (reply.Lines[i].StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    start = i;
+                    break;
+                }
+            }
+
+            if (start < 0)
+            {
+                return [];
+            }
+
+            var lines = new List<string>();
+
+            // A short value comes on the key's own line; a block starts on the next one.
+            var inline = reply.Lines[start][prefix.Length..];
+            if (inline.Length > 0)
+            {
+                lines.Add(inline);
+            }
+
+            // The last line is the closing "250 OK".
+            for (var i = start + 1; i < reply.Lines.Count - 1; i++)
+            {
+                lines.Add(reply.Lines[i]);
+            }
+
+            return lines;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Error($"GETINFO {key} failed", ex);
+            return [];
+        }
+    }
+
     public async Task<long> GetTrafficAsync(bool read, CancellationToken cancellationToken = default)
     {
         var value = await GetInfoAsync(read ? "traffic/read" : "traffic/written", cancellationToken).ConfigureAwait(false);
@@ -204,6 +264,7 @@ public sealed partial class TorControlClient : IAsyncDisposable
         using var reader = new StreamReader(_stream, new UTF8Encoding(false));
         var buffer = new List<string>();
         var code = 0;
+        var inData = false;
 
         try
         {
@@ -215,9 +276,27 @@ public sealed partial class TorControlClient : IAsyncDisposable
                     break;
                 }
 
-                if (line.Length < 4 || !int.TryParse(line[..3], out var lineCode))
+                // Inside a data block (the "250+key=" form) every line is data until a line holding
+                // a single dot, whatever it starts with. Circuit lines start with the circuit's
+                // number, and "123 BUILT ..." used to be read as a final status line, which ended the
+                // reply in the middle of its data and shifted every reply after it.
+                if (inData)
                 {
-                    // Continuation of a multi-line data block (the "250+key=" form).
+                    if (line == ".")
+                    {
+                        inData = false;
+                        continue;
+                    }
+
+                    // A data line that really starts with a dot is sent with a second one.
+                    buffer.Add(line.StartsWith("..", StringComparison.Ordinal) ? line[1..] : line);
+                    continue;
+                }
+
+                if (line.Length < 4 ||
+                    !int.TryParse(line.AsSpan(0, 3), NumberStyles.None, CultureInfo.InvariantCulture, out var lineCode) ||
+                    line[3] is not (' ' or '-' or '+'))
+                {
                     buffer.Add(line);
                     continue;
                 }
@@ -226,7 +305,14 @@ public sealed partial class TorControlClient : IAsyncDisposable
                 var separator = line[3];
                 var payload = line.Length > 4 ? line[4..] : string.Empty;
 
-                if (separator is '-' or '+')
+                if (separator == '+')
+                {
+                    buffer.Add(payload);
+                    inData = true;
+                    continue;
+                }
+
+                if (separator == '-')
                 {
                     buffer.Add(payload);
                     continue;

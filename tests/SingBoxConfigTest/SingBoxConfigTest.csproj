@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>TorVpnForWindows.Tests</RootNamespace>
+    <AssemblyName>SingBoxConfigTest</AssemblyName>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AppDir>$(MSBuildProjectDirectory)\..\..\src\TorVpnForWindows</AppDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The configuration builder as it ships, compiled from the application sources. -->
+    <Compile Include="$(AppDir)\Core\*.cs" />
+    <Compile Include="$(AppDir)\Config\*.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+
+</Project>

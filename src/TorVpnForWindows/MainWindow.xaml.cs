@@ -31,6 +31,9 @@ public partial class MainWindow : Window
 
         LogList.ItemsSource = _logEntries;
 
+        InternetListsCard.ListsChanged += OnInternetListsChanged;
+        TunnelListsCard.ListsChanged += OnTunnelListsChanged;
+
         foreach (var entry in Log.Snapshot())
         {
             _logEntries.Add(entry);
@@ -93,6 +96,7 @@ public partial class MainWindow : Window
         RetryButton.Content = Strings.ButtonRetry;
         UdpNotice.Text = Strings.StatusUdpNotice;
 
+        EntryAddressLabel.Text = Strings.StatusEntryAddress;
         ExitAddressLabel.Text = Strings.StatusExitAddress;
         ExitCountryLabel.Text = Strings.StatusExitCountry;
         DownloadLabel.Text = Strings.StatusDownload;
@@ -120,9 +124,21 @@ public partial class MainWindow : Window
         AllowLanLabel.Text = Strings.SettingAllowLan;
         AllowLanHint.Text = Strings.SettingAllowLanHint;
 
-        ExclusionsLabel.Text = Strings.SettingExclusions;
-        ExclusionsHint.Text = Strings.SettingExclusionsHint;
-        OpenExclusionsButton.Content = Strings.ExclusionsOpen;
+        InternetListsCard.ApplyTexts(new ProgramListsCard.CardTexts(
+            Strings.SettingInternetLists,
+            Strings.SettingInternetListsHint,
+            Strings.ListWindowInternetWhite,
+            Strings.ListWindowInternetWhiteHint,
+            Strings.ListWindowInternetBlack,
+            Strings.ListWindowInternetBlackHint));
+
+        TunnelListsCard.ApplyTexts(new ProgramListsCard.CardTexts(
+            Strings.SettingTunnelLists,
+            Strings.SettingTunnelListsHint,
+            Strings.ListWindowTunnelWhite,
+            Strings.ListWindowTunnelWhiteHint,
+            Strings.ListWindowTunnelBlack,
+            Strings.ListWindowTunnelBlackHint));
 
         AutoConnectLabel.Text = Strings.SettingAutoConnect;
         MinimizeToTrayLabel.Text = Strings.SettingMinimizeToTray;
@@ -137,7 +153,6 @@ public partial class MainWindow : Window
         LogFolderButton.Content = Strings.LogOpenFolder;
         AutoScrollLabel.Text = Strings.LogAutoScroll;
 
-        RefreshExclusionCount();
         RebuildLocalizedCombos();
         Render(_vpn.CurrentStatus);
         _tray.ApplyStrings();
@@ -233,6 +248,9 @@ public partial class MainWindow : Window
 
             MeekFrontPanel.Visibility =
                 _settings.BridgeMode == BridgeMode.Meek ? Visibility.Visible : Visibility.Collapsed;
+
+            InternetListsCard.Bind(_settings.InternetLists);
+            TunnelListsCard.Bind(_settings.TunnelLists);
         }
         finally
         {
@@ -240,20 +258,24 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RefreshExclusionCount()
+    /// <summary>
+    /// The internet lists take effect at once, whether or not a connection is up. Applied off the UI
+    /// thread because resolving the tunnel's executables starts each of them once to ask its version.
+    /// </summary>
+    private void OnInternetListsChanged()
     {
-        try
-        {
-            var count = ExclusionList.Read().Count;
-            ExclusionsCount.Text = count == 0
-                ? Strings.ExclusionsNone
-                : string.Format(CultureInfo.CurrentCulture, Strings.ExclusionsCountFormat, count);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Could not count the excluded applications", ex);
-            ExclusionsCount.Text = Strings.ExclusionsNone;
-        }
+        _settings.Save();
+        _ = Task.Run(_vpn.ApplyInternetLists);
+    }
+
+    /// <summary>
+    /// The routes and the kill switch are built from the tunnel lists, so a running or connecting
+    /// session starts over with the new ones straight away.
+    /// </summary>
+    private void OnTunnelListsChanged()
+    {
+        _settings.Save();
+        _vpn.RequestRestart("The tunnel lists changed.");
     }
 
     // ---------------------------------------------------------------- rendering
@@ -339,21 +361,23 @@ public partial class MainWindow : Window
     private void Render(VpnStatus status)
     {
         var connected = status.State == VpnState.Connected;
-        var busy = status.State is VpnState.Preparing or VpnState.Bootstrapping
-            or VpnState.EstablishingTunnel or VpnState.Disconnecting;
 
-        PowerToggle.IsChecked = connected || status.State == VpnState.Interrupted;
-        PowerToggle.IsEnabled = !busy;
+        PowerToggle.IsChecked = connected || status.State is VpnState.Interrupted or VpnState.WaitingForNetwork;
+
+        // Usable while a connection is being made, because a connect that is going nowhere is exactly
+        // when it is pressed. Only the few seconds of an actual disconnect have nothing to cancel.
+        PowerToggle.IsEnabled = status.State != VpnState.Disconnecting;
 
         StateText.Text = status.State switch
         {
             VpnState.Disconnected => Strings.StateDisconnected,
+            VpnState.WaitingForNetwork => Strings.StateWaitingForNetwork,
             VpnState.Preparing => Strings.StatePreparing,
             VpnState.Bootstrapping => Strings.StateBootstrapping,
             VpnState.EstablishingTunnel => Strings.StateEstablishingTunnel,
             VpnState.Connected => Strings.StateConnected,
             VpnState.Disconnecting => Strings.StateDisconnecting,
-            VpnState.Interrupted => Strings.StateInterrupted,
+            VpnState.Interrupted => Strings.StateReconnecting,
             VpnState.Failed => Strings.StateFailed,
             _ => status.State.ToString()
         };
@@ -363,7 +387,8 @@ public partial class MainWindow : Window
         StateHint.Text = status.State switch
         {
             VpnState.Connected => status.Message ?? Strings.HintConnected,
-            VpnState.Interrupted => Strings.HintInterrupted,
+            VpnState.Interrupted => _vpn.TrafficBlocked ? Strings.HintReconnectingBlocked : Strings.HintReconnecting,
+            VpnState.WaitingForNetwork => _vpn.TrafficBlocked ? Strings.HintWaitingForNetworkBlocked : Strings.HintWaitingForNetwork,
             VpnState.Failed => status.Message ?? Strings.HintDisconnected,
 
             // Saying "your traffic is going out normally" while the block is on would be the
@@ -382,7 +407,7 @@ public partial class MainWindow : Window
             VpnState.Connected when connectedButBlocked => (System.Windows.Media.Brush)FindResource("WarningBrush"),
             VpnState.Connected => (System.Windows.Media.Brush)FindResource("SuccessBrush"),
             VpnState.Failed => (System.Windows.Media.Brush)FindResource("DangerBrush"),
-            VpnState.Interrupted => (System.Windows.Media.Brush)FindResource("WarningBrush"),
+            VpnState.Interrupted or VpnState.WaitingForNetwork => (System.Windows.Media.Brush)FindResource("WarningBrush"),
             _ => (System.Windows.Media.Brush)FindResource("TextBrush")
         };
 
@@ -398,6 +423,12 @@ public partial class MainWindow : Window
         TrafficPanel.Visibility = showSession ? Visibility.Visible : Visibility.Collapsed;
         UdpNotice.Visibility = showSession ? Visibility.Visible : Visibility.Collapsed;
         RenderMap(status.Exit, showSession);
+
+        // The address the local network sees the connection going to: the bridge from the settings,
+        // or Tor's guard relay without bridges.
+        EntryAddressValue.Text = status.Entry is { } entry
+            ? entry.CountryCode is null ? entry.Address : $"{entry.Address} ({entry.CountryCode})"
+            : showSession ? Strings.StatusChecking : "—";
 
         if (status.Exit is { } exit)
         {
@@ -481,7 +512,7 @@ public partial class MainWindow : Window
 
     private async void OnPowerToggleClick(object sender, RoutedEventArgs e)
     {
-        if (_vpn.CanDisconnect && _vpn.State != VpnState.Failed)
+        if (_vpn.WantsConnection)
         {
             await _vpn.DisconnectAsync();
         }
@@ -504,10 +535,14 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Never disables the button. It used to be disabled until the retry finished, and a retry
+    /// finishes only when Tor has bootstrapped, so with no network it stayed grey after one press.
+    /// The retry itself only asks the supervisor to start over and returns at once, so pressing it
+    /// again while the new attempt runs simply starts over once more.
+    /// </summary>
     private async void OnRetryClick(object sender, RoutedEventArgs e)
     {
-        RetryButton.IsEnabled = false;
-
         try
         {
             await _vpn.RetryAsync();
@@ -516,12 +551,6 @@ public partial class MainWindow : Window
         {
             Log.Error("Retry threw", ex);
             MessageBox.Show(this, ex.Message, Strings.ErrorTitle, MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            // Re-enabled unconditionally: this button exists for the case where everything else is
-            // stuck, so it must never be the thing that is stuck.
-            RetryButton.IsEnabled = true;
         }
     }
 
@@ -573,13 +602,36 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Enum.TryParse<BridgeMode>(item.Value, out var mode))
+        if (Enum.TryParse<BridgeMode>(item.Value, out var mode) && mode != _settings.BridgeMode)
         {
             _settings.BridgeMode = mode;
             _settings.Save();
             CustomBridgePanel.Visibility = mode == BridgeMode.Custom ? Visibility.Visible : Visibility.Collapsed;
             MeekFrontPanel.Visibility = mode == BridgeMode.Meek ? Visibility.Visible : Visibility.Collapsed;
+
+            // An empty custom list would start Tor with no bridges at all, in plain view of the
+            // network, while the user is still on the way to pasting their lines. The restart comes
+            // when the list is filled in instead.
+            if (mode != BridgeMode.Custom || _settings.CustomBridges.Count > 0)
+            {
+                ApplyBridgeChange("The bridge setting changed.");
+            }
         }
+    }
+
+    /// <summary>
+    /// Starts a running or connecting session over, so a bridge change takes effect now rather than
+    /// on the next connect. Retry, new circuit and reconnecting all build on the saved settings, so
+    /// after this every one of them continues with the new bridges.
+    /// </summary>
+    private void ApplyBridgeChange(string reason)
+    {
+        if (!_vpn.WantsConnection)
+        {
+            return;
+        }
+
+        _vpn.RequestRestart(reason);
     }
 
     private void OnMeekFrontChanged(object sender, SelectionChangedEventArgs e)
@@ -589,8 +641,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        _settings.MeekFront = string.IsNullOrEmpty(item.Value) ? null : item.Value;
+        var front = string.IsNullOrEmpty(item.Value) ? null : item.Value;
+
+        if (string.Equals(front, _settings.MeekFront, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _settings.MeekFront = front;
         _settings.Save();
+
+        if (_settings.BridgeMode == BridgeMode.Meek)
+        {
+            ApplyBridgeChange("The meek front changed.");
+        }
     }
 
     private void OnCustomBridgesLostFocus(object sender, RoutedEventArgs e)
@@ -600,13 +664,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        _settings.CustomBridges = CustomBridgeBox.Text
+        var lines = CustomBridgeBox.Text
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.Trim())
             .Where(line => line.Length > 0)
             .ToList();
 
+        // Leaving the box without editing it must not restart a working session.
+        if (lines.SequenceEqual(_settings.CustomBridges, StringComparer.Ordinal))
+        {
+            return;
+        }
+
+        _settings.CustomBridges = lines;
         _settings.Save();
+
+        if (_settings.BridgeMode == BridgeMode.Custom && lines.Count > 0)
+        {
+            ApplyBridgeChange("The custom bridge list changed.");
+        }
     }
 
     private void OnSettingToggled(object sender, RoutedEventArgs e)
@@ -644,12 +720,6 @@ public partial class MainWindow : Window
 
         MtuBox.Text = _settings.Mtu.ToString(CultureInfo.InvariantCulture);
         _settings.Save();
-    }
-
-    private void OnOpenExclusionsClick(object sender, RoutedEventArgs e)
-    {
-        ExclusionList.Open();
-        RefreshExclusionCount();
     }
 
     private void OnLogCopyClick(object sender, RoutedEventArgs e)
@@ -701,7 +771,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!_reallyClosing && _vpn.State is VpnState.Connected or VpnState.Interrupted)
+        if (!_reallyClosing && _vpn.WantsConnection)
         {
             var answer = MessageBox.Show(
                 this,

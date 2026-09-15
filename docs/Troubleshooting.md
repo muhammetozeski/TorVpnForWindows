@@ -51,11 +51,24 @@ and search for `Tor VPN for Windows`. There should be no matches while the progr
 Turn on "Allow local network" in the settings. Private address ranges are then kept out of the
 tunnel entirely, so printers, network storage and the router stay reachable.
 
-If a specific program needs to bypass the tunnel altogether, put its executable name in
-`exclusions.txt` (Settings, then "Open the list"). Its traffic then leaves through the normal
-connection and it resolves names with the machine's usual DNS servers. It is also permitted through
-the kill switch, but only if it is already running when you press connect; otherwise it is picked up
-on the next connect.
+If a specific program needs to bypass the tunnel altogether, add it to the tunnel black list
+(Settings, Tunnel, Black list, Edit) and turn the black list on. Its traffic then leaves through
+the normal connection, and it is permitted through the kill switch whether or not it is running
+when you connect. A running session starts over with the change straight away.
+
+## A program stopped reaching the internet
+
+Check the internet lists (Settings, Internet access). With the white list on, only the listed
+programs can reach the internet, whether Tor is connected or not; with the black list on, the
+listed programs cannot. Entries match the exact executable path, so a program that was moved or
+reinstalled somewhere else is a different program to the lists and has to be added again.
+
+## It stays at a low percentage after the Wi-Fi comes up
+
+The connection starts over three seconds after the network settles, and again whenever Tor has
+made no progress and read no data for 30 seconds (45 for meek, 90 for snowflake). The log tab
+shows "The network changed" and "Starting the connection over" when that happens. If it keeps
+starting over without getting further, the bridges themselves are not reachable from this network.
 
 ## VirtualBox, or something similar, breaks while connected
 

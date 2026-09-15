@@ -21,14 +21,19 @@
   <s name="StateEstablishingTunnel">Setting up the tunnel</s>
   <s name="StateConnected">Connected</s>
   <s name="StateDisconnecting">Disconnecting</s>
-  <s name="StateInterrupted">Traffic blocked</s>
+  <s name="StateReconnecting">Reconnecting</s>
+  <s name="StateWaitingForNetwork">Waiting for a network</s>
   <s name="StateFailed">Failed</s>
 
   <s name="HintDisconnected">Your traffic is going out normally.</s>
   <s name="HintBlockedUntilConnected">The internet is blocked. Nothing can reach it until Tor is connected.</s>
   <s name="HintConnected">Every connection on this machine goes through Tor.</s>
-  <s name="HintInterrupted">Tor stopped. The kill switch is holding traffic back.</s>
+  <s name="HintReconnecting">The connection is being set up again.</s>
+  <s name="HintReconnectingBlocked">The connection is being set up again. The internet stays blocked until Tor is connected.</s>
+  <s name="HintWaitingForNetwork">Tor will connect as soon as a network is up.</s>
+  <s name="HintWaitingForNetworkBlocked">Tor will connect as soon as a network is up. Until then the internet is blocked.</s>
 
+  <s name="StatusEntryAddress">Entry address</s>
   <s name="StatusExitAddress">Exit address</s>
   <s name="StatusExitCountry">Exit country</s>
   <s name="StatusChecking">Checking…</s>
@@ -76,11 +81,40 @@
   <s name="SettingMinimizeToTray">Close to the notification area</s>
   <s name="SettingStartMinimized">Start minimised</s>
 
-  <s name="SettingExclusions">Excluded applications</s>
-  <s name="SettingExclusionsHint">Traffic from these programs bypasses the tunnel and resolves names with your usual DNS servers.</s>
-  <s name="ExclusionsOpen">Open the list</s>
-  <s name="ExclusionsCountFormat">{0} program(s) excluded</s>
-  <s name="ExclusionsNone">No programs excluded</s>
+  <s name="SettingInternetLists">Internet access</s>
+  <s name="SettingInternetListsHint">Works like a firewall, whether Tor is connected or not. With the white list on, only the listed programs can reach the internet. With the black list on, the listed programs cannot reach it at all. Only one of them can be on.</s>
+  <s name="SettingTunnelLists">Tunnel</s>
+  <s name="SettingTunnelListsHint">With the white list on, only the listed programs go through Tor and everything else uses the normal connection. With the black list on, the listed programs use the normal connection and everything else goes through Tor. Only one of them can be on.</s>
+  <s name="ListWhite">White list</s>
+  <s name="ListBlack">Black list</s>
+  <s name="ListEdit">Edit</s>
+  <s name="ListCountFormat">{0} program(s)</s>
+  <s name="ListCountNone">No programs</s>
+
+  <s name="ListWindowInternetWhite">Internet white list</s>
+  <s name="ListWindowInternetWhiteHint">With the white list on, only these programs can reach the internet.</s>
+  <s name="ListWindowInternetBlack">Internet black list</s>
+  <s name="ListWindowInternetBlackHint">With the black list on, these programs cannot reach the internet at all.</s>
+  <s name="ListWindowTunnelWhite">Tunnel white list</s>
+  <s name="ListWindowTunnelWhiteHint">With the white list on, only these programs go through Tor.</s>
+  <s name="ListWindowTunnelBlack">Tunnel black list</s>
+  <s name="ListWindowTunnelBlackHint">With the black list on, these programs skip Tor and use the normal connection.</s>
+  <s name="ListWindowMatchNote">Programs are matched by the exact location of their executable. A program with the same name somewhere else is not affected by this list.</s>
+  <s name="ListWindowListed">PROGRAMS ON THE LIST</s>
+  <s name="ListWindowRunning">RUNNING PROGRAMS</s>
+  <s name="ListWindowSearch">Search</s>
+  <s name="ListWindowRefresh">Refresh</s>
+  <s name="ListWindowAdd">Add</s>
+  <s name="ListWindowRemove">Remove</s>
+  <s name="ListWindowAlreadyListed">Listed</s>
+  <s name="ListWindowBrowse">Choose an executable…</s>
+  <s name="ListWindowClose">Close</s>
+  <s name="ListWindowEmpty">There are no programs on this list. Add them from the running programs below or by choosing an executable.</s>
+  <s name="ListWindowLoading">Reading the running programs…</s>
+  <s name="ListWindowNoMatch">No running program matches the search.</s>
+  <s name="ListWindowFileMissing">There is no file at this location</s>
+  <s name="ListWindowFileFilter">Programs (*.exe)|*.exe</s>
+  <s name="ListWindowCannotResolve">The location of this file could not be read: {0}</s>
 
   <s name="SettingTunName">Adapter name</s>
   <s name="SettingMtu">MTU</s>

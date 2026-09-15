@@ -54,9 +54,13 @@ public partial class App : Application
             return;
         }
 
-        ExclusionList.EnsureExists();
+        // Before anything reads the lists: the names of the old exclusion file become exact paths.
+        ExclusionMigration.Run(settings);
 
         _vpn = new VpnService(settings);
+
+        // The internet lists hold for as long as the application runs, connected or not.
+        _vpn.ApplyInternetLists();
 
         // Before the window is even shown. The point of the kill switch is that there is no moment
         // between the application starting and Tor carrying the traffic during which something can

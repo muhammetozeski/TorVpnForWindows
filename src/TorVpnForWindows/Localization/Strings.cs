@@ -34,16 +34,23 @@ internal static class Strings
     public static string StateEstablishingTunnel = "Tünel kuruluyor";
     public static string StateConnected = "Bağlandı";
     public static string StateDisconnecting = "Bağlantı kesiliyor";
-    public static string StateInterrupted = "Trafik engellendi";
+    public static string StateReconnecting = "Yeniden bağlanılıyor";
+    public static string StateWaitingForNetwork = "Ağ bekleniyor";
     public static string StateFailed = "Başarısız";
 
     public static string HintDisconnected = "Trafiğiniz normal şekilde çıkıyor.";
     public static string HintBlockedUntilConnected =
         "İnternet engellendi. Tor bağlanana kadar hiçbir program dışarı çıkamaz.";
     public static string HintConnected = "Bu bilgisayardaki her bağlantı Tor üzerinden geçiyor.";
-    public static string HintInterrupted = "Tor durdu. Kill switch trafiği tutuyor.";
+    public static string HintReconnecting = "Bağlantı baştan kuruluyor.";
+    public static string HintReconnectingBlocked =
+        "Bağlantı baştan kuruluyor. Tor bağlanana kadar internet engelli.";
+    public static string HintWaitingForNetwork = "Bir ağa bağlanınca Tor'a bağlanılacak.";
+    public static string HintWaitingForNetworkBlocked =
+        "Bir ağa bağlanınca Tor'a bağlanılacak. O zamana kadar internet engelli.";
 
     // ---- status card ----
+    public static string StatusEntryAddress = "Giriş adresi";
     public static string StatusExitAddress = "Çıkış adresi";
     public static string StatusExitCountry = "Çıkış ülkesi";
     public static string StatusChecking = "Denetleniyor…";
@@ -103,13 +110,46 @@ internal static class Strings
     public static string SettingMinimizeToTray = "Kapatınca bildirim alanına in";
     public static string SettingStartMinimized = "Simge durumunda başlat";
 
-    // ---- settings: exclusions ----
-    public static string SettingExclusions = "Tünel dışı uygulamalar";
-    public static string SettingExclusionsHint =
-        "Bu programların trafiği tüneli atlar ve isim çözümlemesini olağan DNS sunucularından yapar.";
-    public static string ExclusionsOpen = "Listeyi aç";
-    public static string ExclusionsCountFormat = "{0} program tünel dışında";
-    public static string ExclusionsNone = "Tünel dışı program yok";
+    // ---- settings: program lists ----
+    public static string SettingInternetLists = "İnternet erişimi";
+    public static string SettingInternetListsHint =
+        "Güvenlik duvarı gibi çalışır, Tor bağlı olsa da olmasa da geçerlidir. Beyaz liste açıkken yalnızca listedeki programlar internete çıkabilir. Kara liste açıkken listedeki programlar internete hiç çıkamaz. İkisi aynı anda açık olamaz.";
+    public static string SettingTunnelLists = "Tünel";
+    public static string SettingTunnelListsHint =
+        "Beyaz liste açıkken yalnızca listedeki programlar Tor'dan geçer, diğerleri normal bağlantıdan çıkar. Kara liste açıkken listedeki programlar normal bağlantıdan çıkar, diğerleri Tor'dan geçer. İkisi aynı anda açık olamaz.";
+    public static string ListWhite = "Beyaz liste";
+    public static string ListBlack = "Kara liste";
+    public static string ListEdit = "Düzenle";
+    public static string ListCountFormat = "{0} program";
+    public static string ListCountNone = "Program yok";
+
+    // ---- program list window ----
+    public static string ListWindowInternetWhite = "İnternet beyaz listesi";
+    public static string ListWindowInternetWhiteHint = "Beyaz liste açıkken yalnızca bu programlar internete çıkabilir.";
+    public static string ListWindowInternetBlack = "İnternet kara listesi";
+    public static string ListWindowInternetBlackHint = "Kara liste açıkken bu programlar internete hiç çıkamaz.";
+    public static string ListWindowTunnelWhite = "Tünel beyaz listesi";
+    public static string ListWindowTunnelWhiteHint = "Beyaz liste açıkken yalnızca bu programlar Tor'dan geçer.";
+    public static string ListWindowTunnelBlack = "Tünel kara listesi";
+    public static string ListWindowTunnelBlackHint = "Kara liste açıkken bu programlar Tor'dan geçmez, normal bağlantıdan çıkar.";
+    public static string ListWindowMatchNote =
+        "Programlar tam exe konumuna göre eşleşir. Aynı adlı başka bir konumdaki program bu listeden etkilenmez.";
+    public static string ListWindowListed = "LİSTEDEKİ PROGRAMLAR";
+    public static string ListWindowRunning = "AÇIK PROGRAMLAR";
+    public static string ListWindowSearch = "Ara";
+    public static string ListWindowRefresh = "Yenile";
+    public static string ListWindowAdd = "Ekle";
+    public static string ListWindowRemove = "Kaldır";
+    public static string ListWindowAlreadyListed = "Listede";
+    public static string ListWindowBrowse = "Exe dosyası seç…";
+    public static string ListWindowClose = "Kapat";
+    public static string ListWindowEmpty =
+        "Bu listede program yok. Aşağıdaki açık programlardan ya da exe dosyası seçerek ekleyebilirsiniz.";
+    public static string ListWindowLoading = "Açık programlar okunuyor…";
+    public static string ListWindowNoMatch = "Aramaya uyan açık program yok.";
+    public static string ListWindowFileMissing = "Bu konumda dosya yok";
+    public static string ListWindowFileFilter = "Programlar (*.exe)|*.exe";
+    public static string ListWindowCannotResolve = "Şu dosyanın konumu okunamadı: {0}";
 
     // ---- settings: advanced ----
     public static string SettingTunName = "Bağdaştırıcı adı";

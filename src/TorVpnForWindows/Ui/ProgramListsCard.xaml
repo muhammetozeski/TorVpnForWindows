@@ -1,0 +1,42 @@
+<UserControl x:Class="TorVpnForWindows.Ui.ProgramListsCard"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource Card}">
+        <StackPanel>
+            <TextBlock x:Name="TitleText" FontWeight="SemiBold" />
+            <TextBlock x:Name="HintText" Style="{StaticResource Muted}" Margin="0,4,0,0" />
+
+            <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock x:Name="WhiteLabel" />
+                    <TextBlock x:Name="WhiteCount" Style="{StaticResource Muted}" FontSize="11" Margin="0,1,0,0" />
+                </StackPanel>
+                <Button x:Name="WhiteEditButton" Grid.Column="1" Margin="0,0,14,0"
+                        VerticalAlignment="Center" Click="OnWhiteEditClick" />
+                <CheckBox x:Name="WhiteToggle" Grid.Column="2" Style="{StaticResource Switch}"
+                          Click="OnWhiteToggleClick" />
+            </Grid>
+
+            <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock x:Name="BlackLabel" />
+                    <TextBlock x:Name="BlackCount" Style="{StaticResource Muted}" FontSize="11" Margin="0,1,0,0" />
+                </StackPanel>
+                <Button x:Name="BlackEditButton" Grid.Column="1" Margin="0,0,14,0"
+                        VerticalAlignment="Center" Click="OnBlackEditClick" />
+                <CheckBox x:Name="BlackToggle" Grid.Column="2" Style="{StaticResource Switch}"
+                          Click="OnBlackToggleClick" />
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>
