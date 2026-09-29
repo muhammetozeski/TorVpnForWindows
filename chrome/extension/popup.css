@@ -1,0 +1,35 @@
+:root { color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; color: #eeeaf7; background: #15121d; }
+* { box-sizing: border-box; }
+body { width: 360px; margin: 0; font-size: 13px; }
+header { display: flex; gap: 11px; align-items: center; padding: 22px 22px 18px; border-bottom: 1px solid #2d2639; }
+h1 { font-size: 20px; letter-spacing: -.5px; margin: 0; font-weight: 650; }
+header p { color: #a89dbb; margin: 3px 0 0; font-size: 11px; }
+.tag { margin-left: auto; border: 1px solid #524362; border-radius: 5px; padding: 4px 6px; font-size: 9px; color: #c7b1e5; letter-spacing: .5px; }
+main { padding: 0 22px 16px; }
+.connection { min-height: 161px; text-align: center; padding: 24px 0 15px; }
+.dot { display: inline-block; width: 10px; height: 10px; background: #91869f; border-radius: 50%; box-shadow: 0 0 0 6px #241d2f; }
+.dot.connected { background: #8adaaa; box-shadow: 0 0 0 6px #21342d; }
+.dot.connecting { background: #bba0f0; }
+.dot.error { background: #f49aaa; }
+h2 { font-size: 22px; margin: 16px 0 6px; font-weight: 600; }
+.connection p { color: #aca2ba; line-height: 1.5; margin: 4px 0; font-size: 12px; }
+.connection .ip { font-size: 14px; color: #d2c4e7; font-variant-numeric: tabular-nums; }
+button { width: 100%; border-radius: 9px; padding: 12px; font: 600 13px "Segoe UI", sans-serif; cursor: pointer; border: 1px solid transparent; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid #bd9bef; outline-offset: 3px; }
+.primary { background: #9872d4; color: #110b1b; }
+.primary:hover { background: #ab88df; }
+.secondary { margin-top: 9px; color: #d6c6e9; background: #211a2d; border-color: #3b2f4b; }
+button:disabled { opacity: .4; cursor: default; }
+.metrics { display: flex; justify-content: space-around; text-align: center; padding: 21px 0; border-bottom: 1px solid #2d2639; }
+.metrics div { display: flex; flex-direction: column; gap: 4px; }
+.metrics strong { font-size: 15px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.metrics span { font-size: 10px; color: #a89dbb; }
+details { margin-top: 15px; }
+summary { color: #c1b4cf; cursor: pointer; }
+label { display: block; margin: 15px 0 6px; color: #b8acc8; font-size: 11px; }
+input, select { width: 100%; border: 1px solid #44364f; border-radius: 6px; padding: 9px; background: #20192a; color: #eeeaf7; font-family: inherit; }
+input { font-size: 10px; }
+.hint { color: #a89dbb; font-size: 11px; line-height: 1.5; }
+#error { color: #ffc0cd; background: #39212d; padding: 10px; border-radius: 7px; line-height: 1.5; overflow-wrap: anywhere; }
+footer { margin-top: 21px; display: flex; gap: 7px; align-items: center; justify-content: center; font-size: 10px; color: #92859f; }
+.mini-dot { width: 5px; height: 5px; border-radius: 50%; background: #9a7abc; }

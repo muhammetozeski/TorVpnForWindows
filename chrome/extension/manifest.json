@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "TorVPN",
+  "version": "0.1.0",
+  "description": "Browse through a Tor client running inside this extension. No native helper required.",
+  "minimum_chrome_version": "125",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1RjmPYEjYlM4xq/pZ7TOCoC4wC/TNJW0QdwC7tFC1ZNfB3m8qb/LmnQEQQvX79fvXguWONCiyCoFq58xQ3IiRYXujXEqeXuxsDya3lSkDvaSnHWLth/IrPvqpKFv084YCpp+b7i3aRfFjRMh5e4cjATrlfcweSyOPBhFezx4iVAnZn2Q3yETPdU3X2sRGHbMwQ+TLe/qeDI5wPlm8r7FN2xylqbFzs4JpKhJEvxGyIvcjII19fFev92AQfqr2EI8Ju5+WtyPXoc7FzG4icURduciu1UxeyAZkl8cvdtXhjanxpkp3O8OSuiguk3LcW+f23cW1c2WD1LYvBlMMx9NOQIDAQAB",
+  "permissions": ["proxy", "privacy", "storage", "debugger", "offscreen", "tabs"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "TorVPN", "default_icon": "icon.png" },
+  "icons": { "128": "icon.png" },
+  "incognito": "not_allowed",
+  "content_security_policy": { "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'" }
+}

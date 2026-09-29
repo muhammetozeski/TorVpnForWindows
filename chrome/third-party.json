@@ -1,0 +1,16 @@
+{
+  "name": "tor-js",
+  "version": "0.4.2",
+  "source": "https://registry.npmjs.org/tor-js/-/tor-js-0.4.2.tgz",
+  "integrity": "sha512-EpY7XkK9PMdtjxN4GvJSZ9Uw6Sov+Q0KnftK8CiUH63Ed+T4Fg9f7SSAQDZnIPIBqsfb/dlsocy7egR86kqcLA==",
+  "files": [
+    {
+      "path": "extension/tor/entryPoints/wasm-file/index.js",
+      "sha256": "ec9ccbb0dc802dfc89f77cd10f0d8bac7edad1fc7711dba36ca05332421c4762"
+    },
+    {
+      "path": "extension/tor/tor_js_bg.wasm",
+      "sha256": "17d784ed6cf315be80331f7ff5a0d50b9252f1ec306c87291271a138c188b871"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="tr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>TorVPN</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><img src="icon.png" alt="" width="40" height="40"><div><h1>TorVPN</h1><p data-i18n="subtitle"></p></div><span class="tag" data-i18n="preview"></span></header>
+  <main>
+    <section class="connection" aria-live="polite">
+      <span id="dot" class="dot"></span><h2 id="status"></h2>
+      <p id="description"></p><p class="ip" id="ip"></p>
+    </section>
+    <button class="primary" id="toggle" type="button"></button>
+    <button class="secondary" id="renew" type="button" data-i18n="renew" disabled></button>
+    <div class="metrics"><div><strong id="requests">0</strong><span data-i18n="requests"></span></div><div><strong id="traffic">0 KB</strong><span data-i18n="traffic"></span></div><div><strong id="tabs">0</strong><span data-i18n="tabs"></span></div></div>
+    <p id="error" role="alert" hidden></p>
+    <details><summary data-i18n="settings"></summary>
+      <label for="language" data-i18n="language"></label><select id="language"><option value="tr">Türkçe</option><option value="en">English</option></select>
+      <label for="gateway" data-i18n="gateway"></label><input id="gateway" type="text" spellcheck="false" autocomplete="off">
+      <p class="hint" data-i18n="gatewayHint"></p>
+      <p class="hint" data-i18n="limits"></p>
+    </details>
+    <footer><span class="mini-dot"></span><span data-i18n="localEngine"></span></footer>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
