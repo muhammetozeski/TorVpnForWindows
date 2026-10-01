@@ -237,22 +237,29 @@
                          widened; without it the pickers drift to the far right edge. -->
                     <StackPanel MaxWidth="520" HorizontalAlignment="Left">
 
-                        <Border Style="{StaticResource Card}" Margin="0,10,0,10">
-                            <StackPanel>
-                                <TextBlock x:Name="ProfileLabel" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <Grid>
+                        <StackPanel x:Name="ProfileControls" Margin="0,10,0,4">
+                                <Grid Margin="0,0,0,6">
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <ComboBox x:Name="ProfileCombo" SelectionChanged="OnProfileChanged" />
-                                    <Button x:Name="NewProfileButton" Grid.Column="1" Margin="8,0,0,0" Click="OnNewProfileClick" />
+                                    <TextBlock x:Name="ProfileLabel" VerticalAlignment="Center" Width="85" />
+                                    <ComboBox x:Name="ProfileCombo" Grid.Column="1" SelectionChanged="OnProfileChanged" />
+                                    <Button x:Name="NewProfileButton" Grid.Column="2" Content="+" Width="30" Height="30"
+                                            FontSize="18" Padding="0" Margin="6,0,0,0" Click="OnNewProfileClick" />
                                 </Grid>
-                                <TextBlock x:Name="ProfileNameLabel" Style="{StaticResource Muted}" Margin="0,10,0,4" />
-                                <TextBox x:Name="ProfileNameBox" LostFocus="OnProfileNameLostFocus" KeyDown="OnProfileNameKeyDown" />
-                                <TextBlock x:Name="ProfileHint" Style="{StaticResource Muted}" Margin="0,8,0,0" />
-                            </StackPanel>
-                        </Border>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ProfileNameLabel" Style="{StaticResource Muted}" Width="85"
+                                               VerticalAlignment="Center" />
+                                    <TextBox x:Name="ProfileNameBox" Grid.Column="1" Height="28" Padding="8,3"
+                                             LostFocus="OnProfileNameLostFocus" KeyDown="OnProfileNameKeyDown" />
+                                </Grid>
+                        </StackPanel>
                         <StackPanel x:Name="SettingsEditor">
                         <TextBlock x:Name="SectionConnection" Style="{StaticResource SectionHeader}"
                                    Text="CONNECTION" Margin="0,14,0,8" />

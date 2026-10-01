@@ -24,7 +24,7 @@ public partial class MainWindow
                 _settings.Profiles.FirstOrDefault(profile => profile.Id == _settings.ActiveProfileId)?.Name ?? string.Empty;
             ProfileNameBox.IsEnabled = !_settings.IsDefaultProfile;
             SettingsEditor.IsEnabled = !_settings.IsDefaultProfile;
-            ProfileHint.Text = _settings.IsDefaultProfile ? Strings.ProfileDefaultHint : Strings.ProfileEditableHint;
+            ProfileNameBox.ToolTip = Strings.ProfileName;
         }
         finally
         {
@@ -37,7 +37,8 @@ public partial class MainWindow
     {
         ProfileLabel.Text = Strings.SettingProfile;
         ProfileNameLabel.Text = Strings.ProfileName;
-        NewProfileButton.Content = Strings.ProfileNew;
+        NewProfileButton.ToolTip = Strings.ProfileNew;
+        System.Windows.Automation.AutomationProperties.SetName(NewProfileButton, Strings.ProfileNew);
         Application.Current.Resources["SettingResetText"] = Strings.SettingReset;
         RefreshProfileControls();
     }
@@ -103,7 +104,7 @@ public partial class MainWindow
 
         if (!_settings.RenameActiveProfile(ProfileNameBox.Text))
         {
-            ProfileHint.Text = Strings.ProfileNameInvalid;
+            ProfileNameBox.ToolTip = Strings.ProfileNameInvalid;
             ProfileNameBox.Text = active.Name;
             return;
         }

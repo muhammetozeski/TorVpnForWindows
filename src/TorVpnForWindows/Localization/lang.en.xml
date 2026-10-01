@@ -4,8 +4,6 @@
   <s name="SettingProfile">Settings profile</s>
   <s name="ProfileName">Profile name</s>
   <s name="ProfileNew">New profile</s>
-  <s name="ProfileDefaultHint">Default cannot be changed. Create a new profile to edit settings.</s>
-  <s name="ProfileEditableHint">Changes are saved to this profile. Reset each setting separately with its adjacent button.</s>
   <s name="ProfileNameInvalid">Use a nonempty name other than Default or another profile's name.</s>
   <s name="SettingReset">Reset this setting to its default</s>
   <s name="ListResetEntries">Reset only the programs in this list</s>
