@@ -119,6 +119,38 @@ internal static class Program
             firstTen is >= 10 and <= 12,
             $"{firstTen} plain copies were written, expected about 10");
 
+        try
+        {
+            throw new InvalidOperationException("outer failure", new IOException("inner failure"));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("exception detail probe", ex);
+        }
+        var errorText = File.ReadAllText(logFile);
+        Check("exception logs retain the inner exception and stack",
+            errorText.Contains("inner failure", StringComparison.Ordinal) &&
+            errorText.Contains("Program.Main", StringComparison.Ordinal),
+            "the inner exception or stack trace is missing");
+
+        var heldLog = logFile + ".held";
+        File.Move(logFile, heldLog, overwrite: true);
+        Directory.CreateDirectory(logFile);
+        try
+        {
+            Log.App("disk logging failure probe");
+            var emergency = Path.Combine(AppPaths.LogDir, "emergency.log");
+            Check("disk log failures retain the message in memory and record an emergency log",
+                Log.Snapshot().Any(entry => entry.Message == "disk logging failure probe") &&
+                File.Exists(emergency) && File.ReadAllText(emergency).Contains("Could not append", StringComparison.Ordinal),
+                "the in-memory message or emergency diagnostic is missing");
+        }
+        finally
+        {
+            Directory.Delete(logFile);
+            File.Move(heldLog, logFile);
+        }
+
         Console.WriteLine();
         Console.WriteLine(_failures == 0
             ? $"ALL {_checks} CHECKS PASSED"

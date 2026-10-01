@@ -42,7 +42,7 @@ public static partial class Log
     public static void SingBox(string message) => Write(LogSource.SingBox, message);
 
     public static void Error(string message, Exception ex) =>
-        Write(LogSource.App, $"{message}: {ex.GetType().Name}: {ex.Message}");
+        Write(LogSource.App, $"{message}: {ex}");
 
     public static void Write(LogSource source, string message)
     {
@@ -76,9 +76,10 @@ public static partial class Log
         {
             Entry?.Invoke(entry);
         }
-        catch
+        catch (Exception ex)
         {
             // A misbehaving UI subscriber must never take down logging.
+            ReportLogFailure("A log subscriber failed", ex);
         }
     }
 
@@ -218,9 +219,10 @@ public static partial class Log
                     Encoding.UTF8);
             }
         }
-        catch
+        catch (Exception ex)
         {
             // Disk logging is best effort; the in-memory log remains available in the UI.
+            ReportLogFailure($"Could not append to {AppPaths.AppLogFile}", ex);
         }
     }
 
@@ -242,9 +244,32 @@ public static partial class Log
 
             file.MoveTo(previous);
         }
-        catch
+        catch (Exception ex)
         {
             // If rolling fails the log simply keeps growing; not worth failing startup over.
+            ReportLogFailure($"Could not rotate {AppPaths.AppLogFile}", ex);
+        }
+    }
+
+    /// <summary>Records a logger failure without calling the logger recursively or replacing the original error.</summary>
+    static void ReportLogFailure(string message, Exception exception)
+    {
+        var text = $"{DateTime.Now:O} {message}: {exception}{Environment.NewLine}";
+        try
+        {
+            Directory.CreateDirectory(AppPaths.LogDir);
+            File.AppendAllText(Path.Combine(AppPaths.LogDir, "emergency.log"), text, Encoding.UTF8);
+        }
+        catch
+        {
+            try
+            {
+                Console.Error.WriteLine(text);
+            }
+            catch
+            {
+                // Logging is the final error boundary and must never replace a caller's failure.
+            }
         }
     }
 }

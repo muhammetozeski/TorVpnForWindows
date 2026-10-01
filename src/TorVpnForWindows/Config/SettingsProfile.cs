@@ -132,6 +132,7 @@ public sealed partial class AppSettings
 
         active.Name = name;
         Save();
+        Log.App($"Renamed settings profile {ActiveProfileId} to '{name}'");
         return true;
     }
 
