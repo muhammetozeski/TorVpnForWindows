@@ -14,10 +14,14 @@
 
 .PARAMETER SkipSigning
     Produce the executables without signing them. Useful when only checking that the build works.
+
+.PARAMETER SkipLocalCopy
+    Prepare release artifacts without replacing the installed executable.
 #>
 [CmdletBinding()]
 param(
-    [switch]$SkipSigning
+    [switch]$SkipSigning,
+    [switch]$SkipLocalCopy
 )
 
 Set-StrictMode -Version Latest
@@ -41,7 +45,7 @@ if (-not (Test-Path (Join-Path $RepoRoot 'payload\sing-box\sing-box.exe'))) {
 }
 
 $running = Get-Process -Name 'TorVpnForWindows' -ErrorAction SilentlyContinue
-if ($running) {
+if ($running -and -not $SkipLocalCopy) {
     throw "TorVpnForWindows is running (PID $($running.Id -join ', ')). Close it before publishing; a running executable cannot be signed."
 }
 
@@ -172,6 +176,7 @@ Get-ChildItem $PublishDir -File | ForEach-Object {
 # --- copy to the local programs folder ------------------------------------------------------------
 $LocalPrograms = 'C:\E\kp\aaBenimProgramlarim\TorVpnForWindows'
 
+if (-not $SkipLocalCopy) {
 try {
     New-Item -ItemType Directory -Force $LocalPrograms | Out-Null
     Copy-Item (Join-Path $PublishDir 'TorVpnForWindows.exe') $LocalPrograms -Force
@@ -179,7 +184,8 @@ try {
     Write-Host "Copied the portable build to $LocalPrograms" -ForegroundColor Green
 } catch {
     Write-Host ''
-    Write-Host "Could not copy to ${LocalPrograms}: $($_.Exception.Message)" -ForegroundColor Yellow
+    throw "Could not copy to ${LocalPrograms}: $($_.Exception.Message)"
+}
 }
 
 Write-Host ''
