@@ -1,3 +1,5 @@
+using TorVpnForWindows.Core;
+
 namespace TorVpnForWindows.Localization;
 
 /// <summary>
@@ -19,7 +21,8 @@ internal static class Strings
     public static string ListResetEntries = "Yalnızca bu listenin programlarını sıfırla";
     public static string ListResetMode = "Liste seçimini kapalıya sıfırla; programları koru";
     // ---- window ----
-    public static string AppTitle = "Tor VPN for Windows";
+    public static string AppTitle = AppConstants.DisplayName;
+    public static string ErrorStartupFailed = "Uygulama başlatılamadı. Ayrıntılar log dosyasına kaydedildi.";
     public static string AppSubtitle = "Tüm trafik Tor üzerinden";
 
     // ---- tabs ----

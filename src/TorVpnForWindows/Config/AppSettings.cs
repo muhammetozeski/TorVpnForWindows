@@ -213,21 +213,12 @@ public sealed partial class AppSettings : SettingsValues
         {
             if (File.Exists(AppPaths.SettingsFile))
             {
-                var json = File.ReadAllText(AppPaths.SettingsFile);
-                var loaded = JsonSerializer.Deserialize<AppSettings>(json, SerializerOptions);
-                if (loaded is not null)
-                {
-                    loaded.Normalize();
-                    loaded.InitializeProfiles();
-                    return loaded;
-                }
-
-                Log.App("settings.json deserialized to null, using defaults");
+                return ReadSettings(AppPaths.SettingsFile);
             }
         }
         catch (Exception ex)
         {
-            Log.Error("Could not read settings.json, using defaults", ex);
+            Log.Error("Could not read settings.json; preserving it and checking the previous copy", ex);
 
             try
             {
@@ -241,28 +232,70 @@ public sealed partial class AppSettings : SettingsValues
             }
         }
 
+        if (File.Exists(AppPaths.SettingsBackupFile))
+        {
+            try
+            {
+                var restored = ReadSettings(AppPaths.SettingsBackupFile);
+                // Replace the bad primary with the verified copy so the next save cannot back up
+                // the corrupt file over the only readable version.
+                File.Copy(AppPaths.SettingsBackupFile, AppPaths.SettingsFile, overwrite: true);
+                Log.App($"Recovered settings from {AppPaths.SettingsBackupFile}");
+                return restored;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Could not recover settings from the previous copy", ex);
+                throw new InvalidDataException("Saved settings and their previous copy could not be recovered.", ex);
+            }
+        }
+
+        if (File.Exists(AppPaths.SettingsFile))
+        {
+            throw new InvalidDataException("Saved settings are unreadable and there is no previous copy.");
+        }
+
         var fresh = new AppSettings { IsFirstRun = true };
         fresh.Normalize();
         fresh.InitializeProfiles();
         return fresh;
     }
 
+    /// <summary>Loads and validates one complete settings document, including its selected profile.</summary>
+    static AppSettings ReadSettings(string path)
+    {
+        var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), SerializerOptions)
+            ?? throw new InvalidDataException($"Settings document {path} contains null.");
+        loaded.Normalize();
+        loaded.InitializeProfiles();
+        return loaded;
+    }
+
     public void Save()
     {
         try
         {
-            Directory.CreateDirectory(AppPaths.Root);
+            Directory.CreateDirectory(AppPaths.UserData);
             CaptureActiveProfile();
             var json = JsonSerializer.Serialize(this, SerializerOptions);
 
             // Write to a temporary file first so a crash mid-write cannot corrupt the settings.
             var temp = AppPaths.SettingsFile + ".tmp";
             File.WriteAllText(temp, json);
-            File.Move(temp, AppPaths.SettingsFile, overwrite: true);
+            if (File.Exists(AppPaths.SettingsFile))
+            {
+                File.Replace(temp, AppPaths.SettingsFile, AppPaths.SettingsBackupFile);
+            }
+            else
+            {
+                File.Move(temp, AppPaths.SettingsFile);
+            }
+            Log.App($"Saved settings profile {ActiveProfileId} to {AppPaths.SettingsFile}");
         }
         catch (Exception ex)
         {
             Log.Error("Could not save settings", ex);
+            throw;
         }
     }
 

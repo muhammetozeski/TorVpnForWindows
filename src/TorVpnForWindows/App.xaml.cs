@@ -20,7 +20,36 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
+        try
+        {
+            InitializeApplication();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Application initialization failed", ex);
+            MessageBox.Show(Strings.ErrorStartupFailed, Strings.ErrorTitle, MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+        }
+    }
+
+    /// <summary>Loads portable data and settings before starting any network service or showing the window.</summary>
+    void InitializeApplication()
+    {
+        if (!IsElevated())
+        {
+            MessageBox.Show(Strings.ErrorNeedsAdmin, Strings.ErrorTitle, MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+            return;
+        }
+        if (!ClaimSingleInstance())
+        {
+            MessageBox.Show(Strings.ErrorAlreadyRunning, Strings.AppTitle, MessageBoxButton.OK, MessageBoxImage.Information);
+            Shutdown(0);
+            return;
+        }
+
         AppPaths.EnsureDirectories();
+        PortableDataMigration.Run();
 
         var settings = AppSettings.Load();
 
@@ -39,20 +68,6 @@ public partial class App : Application
         // A run that was killed rather than closed leaves its bridge names behind in the hosts
         // file. They are stale addresses for somebody else's site, so they go before anything else.
         BridgeNameResolver.Clear();
-
-        if (!IsElevated())
-        {
-            MessageBox.Show(Strings.ErrorNeedsAdmin, Strings.ErrorTitle, MessageBoxButton.OK, MessageBoxImage.Error);
-            Shutdown(1);
-            return;
-        }
-
-        if (!ClaimSingleInstance())
-        {
-            MessageBox.Show(Strings.ErrorAlreadyRunning, Strings.AppTitle, MessageBoxButton.OK, MessageBoxImage.Information);
-            Shutdown(0);
-            return;
-        }
 
         // Before anything reads the lists: the names of the old exclusion file become exact paths.
         ExclusionMigration.Run(settings);
@@ -78,7 +93,7 @@ public partial class App : Application
         {
             // Global so a second elevated instance in another session is caught as well; two
             // instances would fight over the TUN adapter and the default route.
-            _singleInstance = new Mutex(initiallyOwned: true, @"Global\TorVpnForWindows.SingleInstance", out var created);
+            _singleInstance = new Mutex(initiallyOwned: true, AppConstants.InstanceMutex, out var created);
 
             if (!created)
             {
@@ -91,7 +106,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log.Error("Could not claim the single instance mutex", ex);
-            return true; // Better to start than to refuse over a mutex failure.
+            throw;
         }
     }
 

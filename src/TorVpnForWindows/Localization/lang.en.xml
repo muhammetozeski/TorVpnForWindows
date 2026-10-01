@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <strings>
   <LanguageName>English</LanguageName>
+  <s name="ErrorStartupFailed">The application could not start. Details were recorded in the log file.</s>
   <s name="SettingProfile">Settings profile</s>
   <s name="ProfileName">Profile name</s>
   <s name="ProfileNew">New profile</s>

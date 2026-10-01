@@ -25,7 +25,7 @@ internal static class LocManager
 
     public static string Current { get; private set; } = "tr";
 
-    private static string Folder => AppPaths.Root;
+    private static string Folder => AppPaths.UserData;
 
     public static (string Code, string Name)[] Available
     {

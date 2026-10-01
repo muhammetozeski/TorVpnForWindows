@@ -38,7 +38,7 @@ public static class ExclusionList
                 return;
             }
 
-            Directory.CreateDirectory(AppPaths.Root);
+            Directory.CreateDirectory(AppPaths.UserData);
             File.WriteAllText(AppPaths.ExclusionsFile, DefaultContent, new UTF8Encoding(false));
             Log.App($"Created {AppPaths.ExclusionsFile}");
         }

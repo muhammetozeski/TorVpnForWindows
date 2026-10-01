@@ -27,6 +27,7 @@
     <Compile Include="$(AppDir)\Core\BinaryResolver.cs" />
     <Compile Include="$(AppDir)\Core\Binaries.cs" />
     <Compile Include="$(AppDir)\Core\AppPaths.cs" />
+    <Compile Include="$(AppDir)\Core\AppConstants.cs" />
     <Compile Include="$(AppDir)\Core\Log.cs" />
     <Compile Include="$(AppDir)\Core\NetworkProbe.cs" />
     <Compile Include="$(AppDir)\Core\EncryptedDns.cs" />

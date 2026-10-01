@@ -35,7 +35,7 @@ public static class BridgeProvider
     private const string BuiltinUrl = "https://bridges.torproject.org/moat/circumvention/builtin";
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromDays(3);
 
-    private static string CacheFile => Path.Combine(AppPaths.Root, "bridges-cache.json");
+    private static string CacheFile => Path.Combine(AppPaths.UserCache, "bridges-cache.json");
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -237,7 +237,7 @@ public static class BridgeProvider
     {
         try
         {
-            Directory.CreateDirectory(AppPaths.Root);
+            Directory.CreateDirectory(AppPaths.UserCache);
             var temp = CacheFile + ".tmp";
             File.WriteAllText(temp, JsonSerializer.Serialize(cache, SerializerOptions));
             File.Move(temp, CacheFile, overwrite: true);

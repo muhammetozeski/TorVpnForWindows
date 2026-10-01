@@ -9,5 +9,6 @@
     <Compile Include="..\..\src\TorVpnForWindows\Config\AppSettings.cs" />
     <Compile Include="..\..\src\TorVpnForWindows\Config\SettingsProfile.cs" />
     <Compile Include="..\..\src\TorVpnForWindows\Config\MeekFronts.cs" />
+    <Compile Include="..\..\src\TorVpnForWindows\Core\PortableDataMigration.cs" />
   </ItemGroup>
 </Project>

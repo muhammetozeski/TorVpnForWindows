@@ -174,7 +174,7 @@ route was before the tunnel came up.
 
 ## Configuration
 
-Settings live in `%LOCALAPPDATA%\TorVpnForWindows`.
+Settings and data travel with the executable. Copy the program folder to keep the same profiles.
 
 The profile picker is at the top of Settings. `Default` always uses the shipped defaults and cannot
 be edited or renamed. First start selects an editable `Profile 1`; upgrading an older installation
@@ -185,16 +185,24 @@ have separate reset buttons.
 
 | File | Purpose |
 |---|---|
-| `settings.json` | Everything the Settings tab writes. |
-| `exclusions.txt` | The old list of process names. Read once and moved into the tunnel black list as the paths of the matching running programs. |
-| `lang.en.xml`, `lang.tr.xml` | Interface text. Edit to change wording, or copy to `lang.<code>.xml` to add a language. |
-| `logs\app.log` | The application's own log plus everything Tor and sing-box print. |
-| `session\` | The generated `torrc` and `sing-box.json` for the current session, useful when something does not behave. |
+| `UserData\settings.json` | All profiles and the selected profile. The previous save is kept in `settings.json.previous` for recovery. |
+| `UserData\exclusions.txt` | The old list of process names. Read once and moved into the tunnel black list as the paths of the matching running programs. |
+| `UserData\lang.en.xml`, `UserData\lang.tr.xml` | Interface text. Edit to change wording, or copy to `lang.<code>.xml` to add a language. |
+| `UserData\tor-data\` | Persistent Tor state, including guard selection. |
+| `AppCache\logs\app.log` | The application's log plus everything Tor and sing-box print. Error records retain inner exceptions and stack traces. |
+| `AppCache\session\` | The generated `torrc`, `sing-box.json` and child process records. |
+| `UserCache\bridges-cache.json` | Downloaded built-in bridges, recreated when needed. |
+
+Older data in `%LOCALAPPDATA%\TorVpnForWindows` is imported once without overwriting existing
+portable settings. The original settings file is retained as `settings.json.migrated` in that
+folder. See [portable data and recovery](docs/PortableData.md) for the storage and migration contract.
 
 The extracted helper binaries live in `%ProgramData%\TorVpnForWindows\runtime`. They are there
 rather than under the user profile because Tor's `ClientTransportPlugin` directive splits its
 argument on whitespace, so the path to the bridge transport must not contain a space, and a user
 account named "John Smith" would produce one.
+
+For maintenance, start with the [documentation index](docs/README.md).
 
 ## Building
 

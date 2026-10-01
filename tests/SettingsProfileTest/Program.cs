@@ -23,7 +23,7 @@ namespace TorVpnForWindows.Tests
         static void Main()
         {
             var folder = TorVpnForWindows.Core.AppPaths.Root;
-            Directory.CreateDirectory(folder);
+            Directory.CreateDirectory(TorVpnForWindows.Core.AppPaths.UserData);
             try
             {
                 File.Delete(TorVpnForWindows.Core.AppPaths.SettingsFile);
@@ -79,6 +79,50 @@ namespace TorVpnForWindows.Tests
                 Check(reloaded.Profiles.First(profile => profile.Id == other.Id).Name == "Work" &&
                     reloaded.CustomBridges.SequenceEqual(["other-bridge"]) &&
                     reloaded.TunnelLists.Blacklist.SequenceEqual(["other.exe"]), "Named profile and its independent lists survive reload");
+
+                reloaded.Save();
+                var expected = Values(AppSettings.Load());
+                File.WriteAllText(TorVpnForWindows.Core.AppPaths.SettingsFile, "{ damaged settings");
+                var recovered = AppSettings.Load();
+                Check(Values(recovered) == expected && !recovered.IsFirstRun,
+                    "A corrupt primary recovers the complete previous profile");
+                Check(File.ReadAllText(TorVpnForWindows.Core.AppPaths.SettingsFile + ".broken") == "{ damaged settings",
+                    "The unreadable original is preserved");
+                recovered.Save();
+                Check(Values(AppSettings.Load()) == expected, "Saving after recovery keeps a readable backup");
+                var tempFile = TorVpnForWindows.Core.AppPaths.SettingsFile + ".tmp";
+                Directory.CreateDirectory(tempFile);
+                var failed = false;
+                try { recovered.Save(); } catch (UnauthorizedAccessException) { failed = true; }
+                Check(failed && Values(AppSettings.Load()) == expected, "Failed save is reported and does not damage persisted settings");
+                Directory.Delete(tempFile);
+
+                File.Delete(TorVpnForWindows.Core.AppPaths.SettingsBackupFile);
+                File.WriteAllText(TorVpnForWindows.Core.AppPaths.SettingsFile, "invalid");
+                failed = false;
+                try { AppSettings.Load(); } catch (InvalidDataException) { failed = true; }
+                Check(failed, "Unrecoverable settings stop initialization instead of silently replacing user data");
+
+                Directory.Delete(folder, recursive: true);
+                Directory.CreateDirectory(TorVpnForWindows.Core.AppPaths.LegacyRoot);
+                File.WriteAllText(Path.Combine(TorVpnForWindows.Core.AppPaths.LegacyRoot, "settings.json"), Values(legacy));
+                File.WriteAllText(Path.Combine(TorVpnForWindows.Core.AppPaths.LegacyRoot, "lang.custom.xml"), "custom language");
+                File.WriteAllText(Path.Combine(TorVpnForWindows.Core.AppPaths.LegacyRoot, "bridges-cache.json"), "bridge cache");
+                var torState = Path.Combine(TorVpnForWindows.Core.AppPaths.LegacyRoot, "tor-data", "state");
+                Directory.CreateDirectory(Path.GetDirectoryName(torState)!);
+                File.WriteAllText(torState, "saved guards");
+                TorVpnForWindows.Core.PortableDataMigration.Run();
+                Check(Values(AppSettings.Load()) == Values(legacy), "Portable migration preserves every legacy setting");
+                Check(File.ReadAllText(Path.Combine(TorVpnForWindows.Core.AppPaths.TorData, "state")) == "saved guards" &&
+                    File.ReadAllText(Path.Combine(TorVpnForWindows.Core.AppPaths.UserData, "lang.custom.xml")) == "custom language" &&
+                    File.ReadAllText(Path.Combine(TorVpnForWindows.Core.AppPaths.UserCache, "bridges-cache.json")) == "bridge cache",
+                    "Portable migration retains Tor state, language files and bridge cache");
+                Check(!File.Exists(Path.Combine(TorVpnForWindows.Core.AppPaths.LegacyRoot, "settings.json")) &&
+                    File.Exists(Path.Combine(TorVpnForWindows.Core.AppPaths.LegacyRoot, "settings.json.migrated")),
+                    "Legacy settings remain as a backup without being reimported on a fresh start");
+                File.WriteAllText(Path.Combine(TorVpnForWindows.Core.AppPaths.LegacyRoot, "settings.json"), "old copy");
+                TorVpnForWindows.Core.PortableDataMigration.Run();
+                Check(Values(AppSettings.Load()) == Values(legacy), "Migration does not overwrite an existing portable profile");
             }
             finally
             {
@@ -94,13 +138,20 @@ namespace TorVpnForWindows.Core
     internal static class AppPaths
     {
         public static string Root => Path.Combine(AppContext.BaseDirectory, "settings-fixture");
-        public static string SettingsFile => Path.Combine(Root, "settings.json");
+        public static string UserData => Path.Combine(Root, "UserData");
+        public static string UserCache => Path.Combine(Root, "UserCache");
+        public static string LegacyRoot => Path.Combine(Root, "legacy");
+        public static string SettingsFile => Path.Combine(UserData, "settings.json");
+        public static string SettingsBackupFile => SettingsFile + ".previous";
+        public static string ExclusionsFile => Path.Combine(UserData, "exclusions.txt");
+        public static string TorData => Path.Combine(UserData, "tor-data");
+        public static string ChildProcessFile => Path.Combine(Root, "AppCache", "session", "children.json");
     }
 
     /// <summary>Collects production diagnostics without opening the real application's log.</summary>
     internal static class Log
     {
         public static void App(string message) => Console.WriteLine(message);
-        public static void Error(string message, Exception exception) => throw new InvalidOperationException(message, exception);
+        public static void Error(string message, Exception exception) => Console.WriteLine($"EXPECTED ERROR {message}: {exception.GetType().Name}");
     }
 }
