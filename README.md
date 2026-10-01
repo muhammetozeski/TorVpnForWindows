@@ -80,8 +80,9 @@ programs the tunnel black list sends around the tunnel are permitted. Once the t
 tunnel adapter is permitted too. If Tor or the tunnel drops, that permit is revoked and the machine
 stays offline while the connection is started over; a network that disappears and returns stays
 blocked until Tor is connected again. Retry keeps the block in place. Only an explicit disconnect
-removes the filters. With the tunnel white list on, only the listed programs are blocked outside
-the tunnel, since every other program is meant to use the normal connection anyway.
+removes the filters. With the tunnel white list on, normal traffic stays blocked until the tunnel
+opens. Once connected, listed programs stay restricted to the tunnel and other programs may use
+the normal connection. Losing the tunnel revokes that direct permit as well.
 
 ### The lists
 

@@ -22,6 +22,8 @@ public sealed class KillSwitchGuard : IDisposable
 
     // Weights inside our own sublayer. The block sits at the bottom; every permit outranks it.
     private const byte WeightBlock = 1;
+    private const byte WeightPermitDirectWhenConnected = 2;
+    private const byte WeightBlockWhitelist = 3;
     private const byte WeightPermitDhcp = 6;
     private const byte WeightPermitEncryptedDns = 7;
     private const byte WeightPermitLoopback = 8;
@@ -36,6 +38,7 @@ public sealed class KillSwitchGuard : IDisposable
 
     /// <summary>What the filters in place were built from, so a changed list rebuilds them.</summary>
     private string? _armedConfiguration;
+    private bool _allowDirectWithTunnel;
 
     /// <summary>True while everything except the permitted traffic is blocked.</summary>
     public bool IsArmed
@@ -57,9 +60,9 @@ public sealed class KillSwitchGuard : IDisposable
     /// the old one comes out, so a changed list never opens a gap.
     /// </summary>
     /// <param name="blockOnly">
-    /// Null blocks everything that is not permitted. A list blocks only those executables instead:
-    /// that is the tunnel white list, where only the listed programs belong to Tor and every other
-    /// program leaves through the normal connection whether Tor is up or not.
+    /// Null keeps all non-exempt programs in the tunnel. A list keeps those executables in the
+    /// tunnel while allowing other programs directly only after the tunnel has opened. All normal
+    /// traffic remains blocked while connecting or recovering a lost connection.
     /// </param>
     public bool Arm(IReadOnlyList<string> permittedExecutables, IReadOnlyList<string>? blockOnly = null)
     {
@@ -84,12 +87,9 @@ public sealed class KillSwitchGuard : IDisposable
 
                 // Order does not matter to WFP, only weight, but the block goes in first so a
                 // failure part way through leaves the machine blocked rather than half open.
-                if (blockOnly is null)
-                {
-                    next.AddFilter(WfpSession.LayerAleAuthConnectV4, WfpSession.ActionBlock, WeightBlock, "block all IPv4");
-                    next.AddFilter(WfpSession.LayerAleAuthConnectV6, WfpSession.ActionBlock, WeightBlock, "block all IPv6");
-                }
-                else
+                next.AddFilter(WfpSession.LayerAleAuthConnectV4, WfpSession.ActionBlock, WeightBlock, "block all IPv4");
+                next.AddFilter(WfpSession.LayerAleAuthConnectV6, WfpSession.ActionBlock, WeightBlock, "block all IPv6");
+                if (blockOnly is not null)
                 {
                     foreach (var executable in blockOnly)
                     {
@@ -127,11 +127,12 @@ public sealed class KillSwitchGuard : IDisposable
 
                 _tunnelFilterIds.Clear();
                 _armedConfiguration = configuration;
+                _allowDirectWithTunnel = blockOnly is not null;
 
                 Log.App(blockOnly is null
                     ? $"Kill switch {(wasArmed ? "rebuilt" : "armed")}; {permittedExecutables.Count} executable(s) permitted"
                     : $"Kill switch {(wasArmed ? "rebuilt" : "armed")} for the tunnel white list; " +
-                      $"{blockOnly.Count} executable(s) kept to the tunnel, {permittedExecutables.Count} permitted");
+                      $"all normal traffic blocked until the tunnel opens, {blockOnly.Count} executable(s) kept to the tunnel");
 
                 return true;
             }
@@ -173,12 +174,30 @@ public sealed class KillSwitchGuard : IDisposable
                 _tunnelFilterIds.Add(_session.AddFilter(WfpSession.LayerAleAuthConnectV6, WfpSession.ActionPermit,
                     WeightPermitTunnel, "permit IPv6 on the tunnel", WfpSession.InterfaceIndex(interfaceIndex)));
 
+                if (_allowDirectWithTunnel)
+                {
+                    // Listed applications have a heavier block and still require the tunnel.
+                    // Put these first so CloseTunnel revokes direct access before the tunnel permit.
+                    _tunnelFilterIds.Insert(0, _session.AddFilter(WfpSession.LayerAleAuthConnectV4, WfpSession.ActionPermit,
+                        WeightPermitDirectWhenConnected, "permit other IPv4 applications while Tor is connected"));
+                    _tunnelFilterIds.Insert(1, _session.AddFilter(WfpSession.LayerAleAuthConnectV6, WfpSession.ActionPermit,
+                        WeightPermitDirectWhenConnected, "permit other IPv6 applications while Tor is connected"));
+                }
+
                 Log.App($"Kill switch: traffic allowed on interface {interfaceIndex}");
                 return true;
             }
             catch (Exception ex)
             {
                 Log.Error("Permitting the tunnel adapter failed", ex);
+                try
+                {
+                    CloseTunnelCore();
+                }
+                catch (Exception cleanupEx)
+                {
+                    Log.Error("Removing partially installed tunnel permits failed", cleanupEx);
+                }
                 return false;
             }
         }
@@ -344,9 +363,9 @@ public sealed class KillSwitchGuard : IDisposable
                 $"Could not build an application identifier for {executablePath}, so it cannot be kept to the tunnel.");
 
         var name = Path.GetFileName(executablePath);
-        session.AddFilter(WfpSession.LayerAleAuthConnectV4, WfpSession.ActionBlock, WeightBlock,
+        session.AddFilter(WfpSession.LayerAleAuthConnectV4, WfpSession.ActionBlock, WeightBlockWhitelist,
             $"keep {name} to the tunnel (IPv4)", appId.Condition);
-        session.AddFilter(WfpSession.LayerAleAuthConnectV6, WfpSession.ActionBlock, WeightBlock,
+        session.AddFilter(WfpSession.LayerAleAuthConnectV6, WfpSession.ActionBlock, WeightBlockWhitelist,
             $"keep {name} to the tunnel (IPv6)", appId.Condition);
     }
 
@@ -391,6 +410,7 @@ public sealed class KillSwitchGuard : IDisposable
     {
         _tunnelFilterIds.Clear();
         _armedConfiguration = null;
+        _allowDirectWithTunnel = false;
 
         var session = _session;
         _session = null;
