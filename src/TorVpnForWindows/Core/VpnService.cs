@@ -281,6 +281,22 @@ public sealed class VpnService : IAsyncDisposable
         EndAttempt(AttemptEnd.Restart, reason);
     }
 
+    /// <summary>Applies profile or reset changes to the firewall and restarts a wanted connection.</summary>
+    /// <param name="reason">The setting change recorded with a connection restart.</param>
+    public void ApplySettingsChanges(string reason)
+    {
+        ApplyInternetLists();
+        if (_wantConnected)
+        {
+            RequestRestart(reason);
+        }
+        else
+        {
+            var binaries = Binaries.Resolve();
+            ApplyKillSwitchSetting(binaries, TunnelListPaths(Settings, binaries));
+        }
+    }
+
     public async Task DisconnectAsync()
     {
         await _commandGate.WaitAsync().ConfigureAwait(false);

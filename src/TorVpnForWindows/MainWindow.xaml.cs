@@ -84,6 +84,7 @@ public partial class MainWindow : Window
 
     private void ApplyStrings()
     {
+        ApplyProfileStrings();
         Title = Strings.AppTitle;
         HeaderTitle.Text = Strings.AppTitle;
         HeaderSubtitle.Text = Strings.AppSubtitle;
@@ -574,7 +575,7 @@ public partial class MainWindow : Window
 
     private void OnLanguageChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_loading || LanguageCombo.SelectedItem is not ComboItem item)
+        if (_loading || _settings.IsDefaultProfile || LanguageCombo.SelectedItem is not ComboItem item)
         {
             return;
         }
@@ -586,7 +587,7 @@ public partial class MainWindow : Window
 
     private void OnExitCountryChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_loading || ExitCountryCombo.SelectedItem is not ComboItem item)
+        if (_loading || _settings.IsDefaultProfile || ExitCountryCombo.SelectedItem is not ComboItem item)
         {
             return;
         }
@@ -597,7 +598,7 @@ public partial class MainWindow : Window
 
     private void OnBridgeModeChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_loading || BridgeCombo.SelectedItem is not ComboItem item)
+        if (_loading || _settings.IsDefaultProfile || BridgeCombo.SelectedItem is not ComboItem item)
         {
             return;
         }
@@ -636,7 +637,7 @@ public partial class MainWindow : Window
 
     private void OnMeekFrontChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_loading || MeekFrontCombo.SelectedItem is not ComboItem item)
+        if (_loading || _settings.IsDefaultProfile || MeekFrontCombo.SelectedItem is not ComboItem item)
         {
             return;
         }
@@ -659,7 +660,7 @@ public partial class MainWindow : Window
 
     private void OnCustomBridgesLostFocus(object sender, RoutedEventArgs e)
     {
-        if (_loading)
+        if (_loading || _settings.IsDefaultProfile)
         {
             return;
         }
@@ -687,7 +688,7 @@ public partial class MainWindow : Window
 
     private void OnSettingToggled(object sender, RoutedEventArgs e)
     {
-        if (_loading)
+        if (_loading || _settings.IsDefaultProfile)
         {
             return;
         }
@@ -703,7 +704,7 @@ public partial class MainWindow : Window
 
     private void OnAdvancedLostFocus(object sender, RoutedEventArgs e)
     {
-        if (_loading)
+        if (_loading || _settings.IsDefaultProfile)
         {
             return;
         }

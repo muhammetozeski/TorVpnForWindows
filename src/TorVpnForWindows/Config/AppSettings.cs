@@ -68,7 +68,7 @@ public sealed class ProgramLists
 /// User-visible configuration, persisted as JSON. Defaults are chosen so that a first run with no
 /// interaction gives a working, leak-free tunnel.
 /// </summary>
-public sealed class AppSettings
+public class SettingsValues
 {
     /// <summary>"system", "en" or "tr". Resolved to a concrete language on first start.</summary>
     public string Language { get; set; } = "system";
@@ -113,9 +113,6 @@ public sealed class AppSettings
     /// <summary>Which programs go through the Tor tunnel and which leave through the normal connection.</summary>
     public ProgramLists TunnelLists { get; set; } = new();
 
-    /// <summary>Set once the names in the old exclusions.txt have been moved into the tunnel black list.</summary>
-    public bool ExclusionsMigrated { get; set; }
-
     /// <summary>Connect as soon as the application starts.</summary>
     public bool AutoConnect { get; set; }
 
@@ -134,73 +131,7 @@ public sealed class AppSettings
 
     public int TorControlPort { get; set; } = 9251;
 
-    [JsonIgnore]
-    public bool IsFirstRun { get; private set; }
-
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
-
-    public static AppSettings Load()
-    {
-        try
-        {
-            if (File.Exists(AppPaths.SettingsFile))
-            {
-                var json = File.ReadAllText(AppPaths.SettingsFile);
-                var loaded = JsonSerializer.Deserialize<AppSettings>(json, SerializerOptions);
-                if (loaded is not null)
-                {
-                    loaded.Normalize();
-                    return loaded;
-                }
-
-                Log.App("settings.json deserialized to null, using defaults");
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Could not read settings.json, using defaults", ex);
-
-            try
-            {
-                var backup = AppPaths.SettingsFile + ".broken";
-                File.Copy(AppPaths.SettingsFile, backup, overwrite: true);
-                Log.App($"Unreadable settings file kept at {backup}");
-            }
-            catch (Exception copyEx)
-            {
-                Log.Error("Could not preserve the unreadable settings file", copyEx);
-            }
-        }
-
-        var fresh = new AppSettings { IsFirstRun = true };
-        fresh.Normalize();
-        return fresh;
-    }
-
-    public void Save()
-    {
-        try
-        {
-            Directory.CreateDirectory(AppPaths.Root);
-            var json = JsonSerializer.Serialize(this, SerializerOptions);
-
-            // Write to a temporary file first so a crash mid-write cannot corrupt the settings.
-            var temp = AppPaths.SettingsFile + ".tmp";
-            File.WriteAllText(temp, json);
-            File.Move(temp, AppPaths.SettingsFile, overwrite: true);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Could not save settings", ex);
-        }
-    }
-
-    private void Normalize()
+    internal void Normalize()
     {
         if (Mtu is < 576 or > 9000)
         {
@@ -225,7 +156,7 @@ public sealed class AppSettings
             ExitCountry = null;
         }
 
-        CustomBridges = CustomBridges
+        CustomBridges = (CustomBridges ?? [])
             .Select(b => b.Trim())
             .Where(b => b.Length > 0 && !b.StartsWith('#'))
             .ToList();
@@ -258,4 +189,81 @@ public sealed class AppSettings
             BridgeMode = BridgeMode.None;
         }
     }
+}
+
+/// <summary>Persisted profiles and the live settings shared with the VPN.</summary>
+public sealed partial class AppSettings : SettingsValues
+{
+    /// <summary>Whether legacy exclusion names have been migrated for this installation.</summary>
+    public bool ExclusionsMigrated { get; set; }
+
+    [JsonIgnore]
+    public bool IsFirstRun { get; private set; }
+
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public static AppSettings Load()
+    {
+        try
+        {
+            if (File.Exists(AppPaths.SettingsFile))
+            {
+                var json = File.ReadAllText(AppPaths.SettingsFile);
+                var loaded = JsonSerializer.Deserialize<AppSettings>(json, SerializerOptions);
+                if (loaded is not null)
+                {
+                    loaded.Normalize();
+                    loaded.InitializeProfiles();
+                    return loaded;
+                }
+
+                Log.App("settings.json deserialized to null, using defaults");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not read settings.json, using defaults", ex);
+
+            try
+            {
+                var backup = AppPaths.SettingsFile + ".broken";
+                File.Copy(AppPaths.SettingsFile, backup, overwrite: true);
+                Log.App($"Unreadable settings file kept at {backup}");
+            }
+            catch (Exception copyEx)
+            {
+                Log.Error("Could not preserve the unreadable settings file", copyEx);
+            }
+        }
+
+        var fresh = new AppSettings { IsFirstRun = true };
+        fresh.Normalize();
+        fresh.InitializeProfiles();
+        return fresh;
+    }
+
+    public void Save()
+    {
+        try
+        {
+            Directory.CreateDirectory(AppPaths.Root);
+            CaptureActiveProfile();
+            var json = JsonSerializer.Serialize(this, SerializerOptions);
+
+            // Write to a temporary file first so a crash mid-write cannot corrupt the settings.
+            var temp = AppPaths.SettingsFile + ".tmp";
+            File.WriteAllText(temp, json);
+            File.Move(temp, AppPaths.SettingsFile, overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not save settings", ex);
+        }
+    }
+
 }

@@ -109,6 +109,15 @@
 
             <Style TargetType="Button" BasedOn="{StaticResource FlatButton}" />
 
+            <Style x:Key="SettingResetButton" TargetType="Button" BasedOn="{StaticResource FlatButton}">
+                <Setter Property="Content" Value="↺" />
+                <Setter Property="ToolTip" Value="{DynamicResource SettingResetText}" />
+                <Setter Property="Padding" Value="7,3" />
+                <Setter Property="Margin" Value="8,0,0,0" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="FontSize" Value="16" />
+            </Style>
+
             <!-- The big round power button -->
             <Style TargetType="ToggleButton" x:Key="PowerButton">
                 <Setter Property="Width" Value="132" />

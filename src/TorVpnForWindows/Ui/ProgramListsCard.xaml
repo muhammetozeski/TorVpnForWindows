@@ -3,12 +3,17 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Border Style="{StaticResource Card}">
         <StackPanel>
-            <TextBlock x:Name="TitleText" FontWeight="SemiBold" />
+            <DockPanel>
+                <Button x:Name="ModeResetButton" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                        Style="{StaticResource SettingResetButton}" Click="OnResetModeClick" />
+                <TextBlock x:Name="TitleText" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </DockPanel>
             <TextBlock x:Name="HintText" Style="{StaticResource Muted}" Margin="0,4,0,0" />
 
             <Grid Margin="0,12,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
@@ -20,11 +25,14 @@
                         VerticalAlignment="Center" Click="OnWhiteEditClick" />
                 <CheckBox x:Name="WhiteToggle" Grid.Column="2" Style="{StaticResource Switch}"
                           Click="OnWhiteToggleClick" />
+                <Button x:Name="WhiteResetButton" Grid.Column="3" Style="{StaticResource SettingResetButton}"
+                        Click="OnResetEntriesClick" />
             </Grid>
 
             <Grid Margin="0,10,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
@@ -36,6 +44,8 @@
                         VerticalAlignment="Center" Click="OnBlackEditClick" />
                 <CheckBox x:Name="BlackToggle" Grid.Column="2" Style="{StaticResource Switch}"
                           Click="OnBlackToggleClick" />
+                <Button x:Name="BlackResetButton" Grid.Column="3" Style="{StaticResource SettingResetButton}"
+                        Click="OnResetEntriesClick" />
             </Grid>
         </StackPanel>
     </Border>

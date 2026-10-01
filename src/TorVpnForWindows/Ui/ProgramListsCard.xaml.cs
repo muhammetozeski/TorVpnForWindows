@@ -45,6 +45,9 @@ public partial class ProgramListsCard : UserControl
         BlackLabel.Text = Strings.ListBlack;
         WhiteEditButton.Content = Strings.ListEdit;
         BlackEditButton.Content = Strings.ListEdit;
+        WhiteResetButton.ToolTip = Strings.ListResetEntries;
+        BlackResetButton.ToolTip = Strings.ListResetEntries;
+        ModeResetButton.ToolTip = Strings.ListResetMode;
 
         Render();
     }
@@ -122,6 +125,40 @@ public partial class ProgramListsCard : UserControl
             Render();
             ListsChanged?.Invoke();
         }
+    }
+
+    /// <summary>Clears only the selected list; the mode and the other list remain unchanged.</summary>
+    void OnResetEntriesClick(object sender, RoutedEventArgs e)
+    {
+        if (_lists is null || !IsEnabled)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(sender, WhiteResetButton))
+        {
+            _lists.Whitelist.Clear();
+        }
+        else
+        {
+            _lists.Blacklist.Clear();
+        }
+
+        Render();
+        ListsChanged?.Invoke();
+    }
+
+    /// <summary>Turns both list switches off without removing any saved program paths.</summary>
+    void OnResetModeClick(object sender, RoutedEventArgs e)
+    {
+        if (_lists is null || !IsEnabled)
+        {
+            return;
+        }
+
+        _lists.Mode = ProgramListMode.Off;
+        Render();
+        ListsChanged?.Invoke();
     }
 
     /// <summary>Opens the list editor and returns the new entries, or null when nothing changed.</summary>

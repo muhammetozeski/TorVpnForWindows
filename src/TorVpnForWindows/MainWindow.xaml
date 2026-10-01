@@ -237,6 +237,23 @@
                          widened; without it the pickers drift to the far right edge. -->
                     <StackPanel MaxWidth="520" HorizontalAlignment="Left">
 
+                        <Border Style="{StaticResource Card}" Margin="0,10,0,10">
+                            <StackPanel>
+                                <TextBlock x:Name="ProfileLabel" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="ProfileCombo" SelectionChanged="OnProfileChanged" />
+                                    <Button x:Name="NewProfileButton" Grid.Column="1" Margin="8,0,0,0" Click="OnNewProfileClick" />
+                                </Grid>
+                                <TextBlock x:Name="ProfileNameLabel" Style="{StaticResource Muted}" Margin="0,10,0,4" />
+                                <TextBox x:Name="ProfileNameBox" LostFocus="OnProfileNameLostFocus" KeyDown="OnProfileNameKeyDown" />
+                                <TextBlock x:Name="ProfileHint" Style="{StaticResource Muted}" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel x:Name="SettingsEditor">
                         <TextBlock x:Name="SectionConnection" Style="{StaticResource SectionHeader}"
                                    Text="CONNECTION" Margin="0,14,0,8" />
 
@@ -244,22 +261,26 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="LanguageLabel" Grid.Column="0" Text="Language"
                                        VerticalAlignment="Center" />
                             <ComboBox x:Name="LanguageCombo" Grid.Column="1" Width="170"
                                       SelectionChanged="OnLanguageChanged" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="Language" Click="OnResetSettingClick" />
                         </Grid>
 
                         <Grid Margin="0,0,0,4">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="ExitCountryLabelSetting" Grid.Column="0"
                                        Text="Exit country" VerticalAlignment="Center" />
                             <ComboBox x:Name="ExitCountryCombo" Grid.Column="1" Width="170"
                                       SelectionChanged="OnExitCountryChanged" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="ExitCountry" Click="OnResetSettingClick" />
                         </Grid>
                         <TextBlock x:Name="ExitCountryHint" Style="{StaticResource Muted}"
                                    Margin="0,0,0,14" />
@@ -268,11 +289,13 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="BridgeLabel" Grid.Column="0" Text="Bridges"
                                        VerticalAlignment="Center" />
                             <ComboBox x:Name="BridgeCombo" Grid.Column="1" Width="170"
                                       SelectionChanged="OnBridgeModeChanged" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="BridgeMode" Click="OnResetSettingClick" />
                         </Grid>
                         <TextBlock x:Name="BridgeHint" Style="{StaticResource Muted}" />
 
@@ -281,12 +304,14 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
                                 <TextBlock x:Name="MeekFrontLabel" Grid.Column="0" Text="Front"
                                            VerticalAlignment="Center" />
                                 <ComboBox x:Name="MeekFrontCombo" Grid.Column="1" Width="170"
                                           SelectionChanged="OnMeekFrontChanged" />
-                            </Grid>
+                                <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="MeekFront" Click="OnResetSettingClick" />
+                        </Grid>
                             <TextBlock x:Name="MeekFrontHint" Style="{StaticResource Muted}" />
                         </StackPanel>
 
@@ -311,6 +336,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Margin="0,0,12,0">
                                 <TextBlock x:Name="KillSwitchLabel" Text="Kill switch" />
@@ -319,11 +345,13 @@
                             </StackPanel>
                             <CheckBox x:Name="KillSwitchToggle" Grid.Column="1"
                                       Style="{StaticResource Switch}" Click="OnSettingToggled" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="KillSwitch" Click="OnResetSettingClick" />
                         </Grid>
 
                         <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Margin="0,0,12,0">
@@ -333,11 +361,13 @@
                             </StackPanel>
                             <CheckBox x:Name="StrictRouteToggle" Grid.Column="1"
                                       Style="{StaticResource Switch}" Click="OnSettingToggled" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="StrictRoute" Click="OnResetSettingClick" />
                         </Grid>
 
                         <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Margin="0,0,12,0">
@@ -347,6 +377,7 @@
                             </StackPanel>
                             <CheckBox x:Name="AllowLanToggle" Grid.Column="1"
                                       Style="{StaticResource Switch}" Click="OnSettingToggled" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="AllowLan" Click="OnResetSettingClick" />
                         </Grid>
 
                         <ui:ProgramListsCard x:Name="InternetListsCard" Margin="0,4,0,0" />
@@ -359,33 +390,39 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="AutoConnectLabel" Grid.Column="0"
                                        Text="Connect on start" VerticalAlignment="Center" />
                             <CheckBox x:Name="AutoConnectToggle" Grid.Column="1"
                                       Style="{StaticResource Switch}" Click="OnSettingToggled" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="AutoConnect" Click="OnResetSettingClick" />
                         </Grid>
 
                         <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="MinimizeToTrayLabel" Grid.Column="0"
                                        Text="Close to the notification area" VerticalAlignment="Center" />
                             <CheckBox x:Name="MinimizeToTrayToggle" Grid.Column="1"
                                       Style="{StaticResource Switch}" Click="OnSettingToggled" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="MinimizeToTray" Click="OnResetSettingClick" />
                         </Grid>
 
                         <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="StartMinimizedLabel" Grid.Column="0"
                                        Text="Start minimised" VerticalAlignment="Center" />
                             <CheckBox x:Name="StartMinimizedToggle" Grid.Column="1"
                                       Style="{StaticResource Switch}" Click="OnSettingToggled" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="StartMinimized" Click="OnResetSettingClick" />
                         </Grid>
 
                         <TextBlock x:Name="SectionAdvanced" Style="{StaticResource SectionHeader}"
@@ -395,26 +432,31 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="TunNameLabel" Grid.Column="0" Text="Adapter name"
                                        VerticalAlignment="Center" />
                             <TextBox x:Name="TunNameBox" Grid.Column="1" Width="170"
                                      LostFocus="OnAdvancedLostFocus" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="TunInterfaceName" Click="OnResetSettingClick" />
                         </Grid>
 
                         <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="MtuLabel" Grid.Column="0" Text="MTU"
                                        VerticalAlignment="Center" />
                             <TextBox x:Name="MtuBox" Grid.Column="1" Width="170"
                                      LostFocus="OnAdvancedLostFocus" />
+                            <Button Grid.Column="2" Style="{StaticResource SettingResetButton}" Tag="Mtu" Click="OnResetSettingClick" />
                         </Grid>
 
                         <TextBlock x:Name="RestartNeededText" Style="{StaticResource Muted}"
                                    Margin="0,8,0,0" FontSize="11" />
+                        </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

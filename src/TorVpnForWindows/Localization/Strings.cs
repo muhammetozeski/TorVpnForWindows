@@ -11,6 +11,15 @@ namespace TorVpnForWindows.Localization;
 /// </summary>
 internal static class Strings
 {
+    public static string SettingProfile = "Ayar profili";
+    public static string ProfileName = "Profil adı";
+    public static string ProfileNew = "Yeni profil";
+    public static string ProfileDefaultHint = "Default değiştirilemez. Düzenlemek için yeni profil oluşturun.";
+    public static string ProfileEditableHint = "Değişiklikler bu profile kaydedilir. Her ayarı yanındaki düğmeyle ayrı ayrı sıfırlayabilirsiniz.";
+    public static string ProfileNameInvalid = "Boş, Default veya başka bir profille aynı adı kullanamazsınız.";
+    public static string SettingReset = "Bu ayarı varsayılana sıfırla";
+    public static string ListResetEntries = "Yalnızca bu listenin programlarını sıfırla";
+    public static string ListResetMode = "Liste seçimini kapalıya sıfırla; programları koru";
     // ---- window ----
     public static string AppTitle = "Tor VPN for Windows";
     public static string AppSubtitle = "Tüm trafik Tor üzerinden";

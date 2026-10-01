@@ -176,6 +176,13 @@ route was before the tunnel came up.
 
 Settings live in `%LOCALAPPDATA%\TorVpnForWindows`.
 
+The profile picker is at the top of Settings. `Default` always uses the shipped defaults and cannot
+be edited or renamed. First start selects an editable `Profile 1`; upgrading an older installation
+copies its existing settings into that profile. Additional profiles start as copies of `Default`
+and can be named. Each setting has its own reset button, with no whole-profile reset. Personal Tor
+bridge lines are retained when the bridge setting is reset. Program list entries and list selection
+have separate reset buttons.
+
 | File | Purpose |
 |---|---|
 | `settings.json` | Everything the Settings tab writes. |
